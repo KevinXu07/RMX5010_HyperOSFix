@@ -22,6 +22,7 @@
 | 修复项 | 载体 | 离线验证 | 实机验证 | 文档 |
 |---|---|---|---|---|
 | 小米账号 / MTD 依赖闭包 | odm + vendor 重建 | ✅ 标注/差分/策略编译 | ⏳ 待刷测 | [方案](docs/小米账号MTD依赖_修复方案.md) |
+| 查找设备（改包，免 LSPosed） | product 重建（APK 重签 + dex 补丁 + 白名单） | ✅ 签名/对齐/镜像差分 | ⏳ 待刷测 | [补丁](patches/finddevice-notz/README.md) |
 | SELinux 闭包与 EROFS 重建规范 | — | ✅ | — | [规范](docs/SELinux闭包与EROFS重建规范.md) |
 | 分区血缘与刷写顺序 | — | ✅ | ✅（历史包） | [说明](docs/分区血缘与刷机顺序.md) |
 | 历史修复（状态栏/灵动岛/相机/信号/音频/NFC/亮度…） | system/product/odm + KSU 模块 | 部分 | 部分 | [状态矩阵](docs/修复清单与状态矩阵.md) |
