@@ -1,0 +1,86 @@
+; Xiaomi misys minimal native vendor domains.
+(type hal_misys_vendor_default)
+(roletype object_r hal_misys_vendor_default)
+(type hal_misys_vendor_default_exec)
+(roletype object_r hal_misys_vendor_default_exec)
+(type hal_misys_vendor_service)
+(roletype object_r hal_misys_vendor_service)
+
+(type hal_misyscore_default)
+(roletype object_r hal_misyscore_default)
+(type hal_misyscore_default_exec)
+(roletype object_r hal_misyscore_default_exec)
+(type hal_misyscore_service)
+(roletype object_r hal_misyscore_service)
+
+(typeattributeset domain (hal_misys_vendor_default hal_misyscore_default))
+(typeattributeset mlstrustedsubject (hal_misys_vendor_default hal_misyscore_default))
+(typeattributeset halserverdomain (hal_misys_vendor_default hal_misyscore_default))
+(typeattributeset halclientdomain (hal_misys_vendor_default))
+(typeattributeset file_type (hal_misys_vendor_default_exec hal_misyscore_default_exec))
+(typeattributeset exec_type (hal_misys_vendor_default_exec hal_misyscore_default_exec))
+(typeattributeset vendor_file_type (hal_misys_vendor_default_exec hal_misyscore_default_exec))
+(typeattributeset protected_service (hal_misys_vendor_service hal_misyscore_service))
+(typeattributeset service_manager_type (hal_misys_vendor_service hal_misyscore_service))
+
+(typeattribute hal_misys_vendor)
+(typeattribute hal_misys_vendor_server)
+(typeattribute hal_misys_vendor_client)
+(typeattributeset hal_misys_vendor (hal_misys_vendor_default))
+(typeattributeset hal_misys_vendor_server (hal_misys_vendor_default))
+(typeattributeset hal_misys_vendor_client (hypsys_ssi_default))
+(typeattributeset hypsys_ssi_client (hal_misys_vendor_default))
+
+(typeattribute hal_misyscore)
+(typeattribute hal_misyscore_server)
+(typeattribute hal_misyscore_client)
+(typeattributeset hal_misyscore (hal_misyscore_default))
+(typeattributeset hal_misyscore_server (hal_misyscore_default))
+(typeattributeset hal_misyscore_client (hal_misys_vendor_default))
+
+; init_daemon_domain for hypsys_vendor.
+(allow init_202404 hal_misys_vendor_default_exec (file (read getattr map execute open)))
+(allow init_202404 hal_misys_vendor_default (process (transition)))
+(allow hal_misys_vendor_default hal_misys_vendor_default_exec (file (read getattr map execute open entrypoint)))
+(dontaudit init_202404 hal_misys_vendor_default (process (noatsecure)))
+(allow init_202404 hal_misys_vendor_default (process (siginh rlimitinh)))
+(typetransition init_202404 hal_misys_vendor_default_exec process hal_misys_vendor_default)
+
+; init_daemon_domain for misys core.
+(allow init_202404 hal_misyscore_default_exec (file (read getattr map execute open)))
+(allow init_202404 hal_misyscore_default (process (transition)))
+(allow hal_misyscore_default hal_misyscore_default_exec (file (read getattr map execute open entrypoint)))
+(dontaudit init_202404 hal_misyscore_default (process (noatsecure)))
+(allow init_202404 hal_misyscore_default (process (siginh rlimitinh)))
+(typetransition init_202404 hal_misyscore_default_exec process hal_misyscore_default)
+
+; Binder use for both native services.
+(allow hal_misys_vendor_default servicemanager_202404 (binder (call transfer)))
+(allow servicemanager_202404 hal_misys_vendor_default (binder (call transfer)))
+(allow servicemanager_202404 hal_misys_vendor_default (dir (search)))
+(allow servicemanager_202404 hal_misys_vendor_default (file (read open)))
+(allow servicemanager_202404 hal_misys_vendor_default (process (getattr)))
+(allow hal_misyscore_default servicemanager_202404 (binder (call transfer)))
+(allow servicemanager_202404 hal_misyscore_default (binder (call transfer)))
+(allow servicemanager_202404 hal_misyscore_default (dir (search)))
+(allow servicemanager_202404 hal_misyscore_default (file (read open)))
+(allow servicemanager_202404 hal_misyscore_default (process (getattr)))
+
+; Xiaomi vendor AIDL registration and calls.
+(allow hal_misys_vendor_client hal_misys_vendor_server (binder (call transfer)))
+(allow hal_misys_vendor_server hal_misys_vendor_client (binder (transfer)))
+(allow hal_misys_vendor_client hal_misys_vendor_server (fd (use)))
+(allow hal_misys_vendor_client hal_misys_vendor_service (service_manager (find)))
+(allow hal_misys_vendor_server hal_misys_vendor_service (service_manager (add find)))
+
+(allow hal_misyscore_client hal_misyscore_server (binder (call transfer)))
+(allow hal_misyscore_server hal_misyscore_client (binder (transfer)))
+(allow hal_misyscore_client hal_misyscore_server (fd (use)))
+(allow hal_misyscore_client hal_misyscore_service (service_manager (find)))
+(allow hal_misyscore_server hal_misyscore_service (service_manager (add find)))
+
+; hypsys_vendor reads the kernel log during startup.
+(allow hal_misys_vendor_default kmsg_device_202404 (chr_file (ioctl read write getattr lock append map open watch watch_reads)))
+(allow hal_misys_vendor_default kernel_202404 (system (syslog_read)))
+
+; Xiaomi mtdservice minimal native vendor domain.

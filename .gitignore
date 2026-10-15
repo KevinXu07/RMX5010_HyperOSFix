@@ -1,0 +1,27 @@
+# 镜像与构建产物（体积大，不入库）
+*.img
+*.raw.img
+out/
+work/
+stage/
+_before_account_fix/
+
+# 本机配置与凭据
+local.properties
+.env
+.env.*
+*.jks
+*.keystore
+*.p12
+*.pfx
+key.properties
+keystore.properties
+
+# 日志与临时
+*.log
+*.bak
+*.tmp
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

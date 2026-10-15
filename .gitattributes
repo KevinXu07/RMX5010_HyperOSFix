@@ -1,0 +1,16 @@
+* text=auto
+*.sh text eol=lf
+*.cil text eol=lf
+*.tsv text eol=lf
+*.append text eol=lf
+# 二进制载荷：不要做行尾/编码转换
+*.so binary
+*.bin binary
+*.ko binary
+*.img binary
+*.apk binary
+*.jar binary
+*.zip binary
+patches/xiaomi-account/payload/** binary
+# 第三方原样快照：不做任何规范化
+upstream/** binary

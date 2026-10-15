@@ -1,0 +1,5 @@
+vendor.xiaomi.hardware.blackbox.IBlackboxImpl/default u:object_r:hal_misys_vendor_service:s0
+vendor.xiaomi.hardware.misys.common.IHypSysIntl/default u:object_r:hal_misys_vendor_service:s0
+vendor.xiaomi.hardware.misys.common.IMiSysImpl/default u:object_r:hal_misys_vendor_service:s0
+vendor.xiaomi.hardware.misys.core.IMiSysCore/default u:object_r:hal_misyscore_service:s0
+vendor.xiaomi.hardware.aidl.mtdservice.IMTService/default u:object_r:hal_mtdservice_service:s0

@@ -1,0 +1,21 @@
+米账号依赖/Mi Accounts fixing
+
+mtd/mlipay/misys/hypsys/fidoca/idmanager/mikeybag米账号依赖文件补全包
+
+提取自小米15u（xuanyuan）
+For Android16 HyperOS3
+
+其他版本不要用，会卡fb
+Don't use in other Android versions, it will get stuck in Fastboot
+
+Realme GT8 Pro测试通过
+
+中文:
+复制所有文件到你的vendor和odm，如果提示有重复文件不要替换，点跳过，一定不要点替换，会卡一!
+然后把两个filecontext加到你的file_context末尾，最后打包开机
+
+English:
+Copy all files to your vendor and odm, if there is a prompt not to replace duplicate files, click to skip, be sure not to click replace, it will get stuck!
+Then add two filecontexts to the end of your file_context and finally package and boot
+
+by tejat 2025.11
