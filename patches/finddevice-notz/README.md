@@ -183,3 +183,18 @@ MIUIFindDeviceCN.apk / DevicesAndroidOverlay.apk / product_seapp_contexts / 亮�
 
 **刷写**：仅 product，**无需清数据**（签名未变）：
 `fastboot -S 128M flash product_a images\product.img`。
+
+### 实机验证（2026-10-16，acbefdc7）✅
+
+刷入本版 product.img 后：
+
+| 检查 | 结果 |
+|---|---|
+| `/product/etc/sysconfig/rmx5010-hiddenapi-package-whitelist.xml` | 存在 |
+| `dumpsys package com.xiaomi.finddevice` → `hiddenApiEnforcementPolicy` | **0**（修复前为 2） |
+| 启动 `FindMainActivity` | 驻留前台，进程稳定存活 |
+| logcat `NoSuchMethodError` / `hiddenapi ... denied` | **无** |
+| crash 缓冲区 | 无 finddevice 记录 |
+| 界面 | 正常显示「开启查找我的设备」向导 |
+| `getenforce` | Enforcing |
+| `settings get global hidden_api_policy` | null（诊断设置已复原） |
