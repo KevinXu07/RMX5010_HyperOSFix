@@ -96,3 +96,43 @@ adb shell 'dumpsys package com.xiaomi.finddevice | grep -A2 signatures'   # 应�
 adb shell 'logcat -d | grep -iE "empty TZ id|mipccAttestation|finddevice"' | tail -50
 # 走一遍引导：协议与声明 → 同意并继续，应进入下一步；设置 → 查找设备 应可用
 ```
+
+
+## 实机回归（2026-10-16）：闪退根因与修法（seapp_contexts，免重签）
+
+首版改包（重签）刷入后，finddevice **一启动就闪退**，抓到的现场：
+
+```
+Abort message: JNI FatalError called: (com.xiaomi.finddevice)
+  ... selinux_android_setcontext(..., "default:privapp:targetSdkVersion=36:partition=product:complete",
+  "com.xiaomi.finddevice") failed
+```
+
+**根因**：`/system_ext/etc/selinux/system_ext_seapp_contexts` 里有 MIUI 给 finddevice 专设的规则：
+
+```
+user=system_finddevice minTargetSdkVersion=37 seinfo=platform domain=platform_app  type=app_data_file levelFrom=user
+user=system_finddevice seinfo=platform                domain=platform_app_36 type=app_data_file levelFrom=user
+```
+
+finddevice 用的是**专属 Android 用户 `system_finddevice`**，而它的 seapp 规则**强制 `seinfo=platform`**。
+重签后 seinfo 降为 `default` → 没有任何规则匹配 → **zygote 特化阶段 setcontext 失败 → SIGABRT**
+（进程还没跑任何应用代码就被杀，所以表现为"一打开就闪退"）。
+
+**修法（保留重签，不需要清数据）**：给 `seinfo=default` 补两条**同域**规则
+（`product/etc/selinux/product_seapp_contexts`）：
+
+```
+user=system_finddevice minTargetSdkVersion=37 seinfo=default domain=platform_app  type=app_data_file levelFrom=user
+user=system_finddevice seinfo=default                domain=platform_app_36 type=app_data_file levelFrom=user
+```
+
+域的解析结果与原版**完全一致**（platform_app / platform_app_36、app_data_file、levelFrom=user），
+只是把匹配键从 `platform` 换成 `default`。
+
+### 另一条路（未采用）：保留原签名块
+
+理论上可以让 seinfo 保持 `platform`（把 dex 打进原 APK、保留原签名块，和 TeleService 同法），
+但实机证明：**`/vendor` 分区不接受失效摘要**（CneApp 用同法被 PMS 丢弃：`Unable to find package`），
+而 `/system` 可以（TeleService 正常加载、电话进程在跑）。finddevice 在 `/product`，是否接受未验证；
+且切换会改变证书、需要再清一次数据。因此本轮采用 seapp 规则方案。
