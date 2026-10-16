@@ -33,3 +33,16 @@ adb shell getprop persist.miui.density_v2      # 500
 adb shell wm density                           # Physical density: 500
 # MTP：连接电脑后应出现 MTP 设备；adb shell setprop sys.usb.config mtp 后枚举正常
 ```
+
+
+## 3. 补 `ro.miui.product.home`（炸桌面）
+
+`product/etc/build.prop` 追加（[product_build.prop](product_build.prop) 为修好后的完整文件）：
+
+```
+ro.miui.product.home=com.miui.home
+```
+
+依据：该 prop 在整包里**没有被任何地方设置**（donor system/product/system_ext 与一加 my_product 都查过），
+而 MIUI 应用会读（`MISettings.vdex`、`MIUICloudBackup.vdex`、`Backup.vdex`、`MIUIContactsT.vdex`、
+`MIUSecurityCenter.vdex` 里都有该字符串）；桌面包名 = `com.miui.home`（`product/priv-app/MiuiHome`）。

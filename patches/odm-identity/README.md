@@ -52,3 +52,16 @@ adb shell getprop ro.product.marketname   # Realme GT7 Pro
 `my_product/build.prop`（ext4 镜像）里还有 `ro.build.display.ota=PJA110_11_A.01…`、
 `ro.product.authentication=2023CP8032` 等一加残留；本次未动该分区。若确认有东西直接读
 my_product 的 prop，需要再单独改 ext4 镜像。
+
+
+## 后续修正（2026-10-16 晚）：型号 → 25128PNA1G
+
+`2410DPN6CC` 是 haotian（小米 15 Pro）的型号，**不是 nezha 的**。nezha 有两个代号：
+
+- 小米/徕卡侧：`missi`（证据：donor system 分区的 build.prop 里有 `# from device/xiaomi/missi/system.prop`，
+  且 `ro.system.build.fingerprint=Xiaomi/missi/missi:17/CP2A.260605.016/...`）
+- Redmi/产品侧：`nezha`（`ro.product.product.name=miproduct_nezha`，且 `device_features/nezha.xml`）
+
+现在的取值：`ro.product.model` / `ro.product.odm.model` = **25128PNA1G**（徕卡版型号，用户提供；
+该串在 donor 包里搜不到，属于外部信息）；`ro.product.device/name` 保留 `nezha`（device_features 只有 nezha.xml）。
+如需把 device/name 也改成 `missi`，改 odm_build.prop 里那四行即可。
