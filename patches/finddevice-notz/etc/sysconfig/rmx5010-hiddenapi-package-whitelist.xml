@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  RMX5010 HyperOS4 port - hidden API whitelist for re-signed system apps.
+
+  com.xiaomi.finddevice is re-signed with a non-platform key (its TZ credential
+  path is patched so it no longer needs the Xiaomi cardapp trustlet). Because the
+  APK no longer carries the platform certificate, PackageManager stops treating it
+  as platform-signed and ART enforces the hidden-API blacklist against it; calls
+  such as MiuiSettings$Global.getBoolean(ContentResolver,String) are then denied
+  and the app dies with NoSuchMethodError.
+
+  Listing the package here sets PRIVATE_FLAG_IS_HIDDEN_API_WHITELISTED, which is
+  the documented exemption for system apps that are not signed with the platform
+  certificate, and forces hiddenApiEnforcementPolicy=0 (disabled).
+
+  Place at product/etc/sysconfig/rmx5010-hiddenapi-package-whitelist.xml
+  (any *.xml under product/etc/sysconfig/ is parsed by SystemConfig; the product
+  partition is read with allowApiWhitelisting=true).
+-->
+<config>
+    <hidden-api-whitelisted-app package="com.xiaomi.finddevice" />
+</config>

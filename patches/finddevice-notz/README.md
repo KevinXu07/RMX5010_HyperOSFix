@@ -136,3 +136,50 @@ user=system_finddevice seinfo=default                domain=platform_app_36 type
 但实机证明：**`/vendor` 分区不接受失效摘要**（CneApp 用同法被 PMS 丢弃：`Unable to find package`），
 而 `/system` 可以（TeleService 正常加载、电话进程在跑）。finddevice 在 `/product`，是否接受未验证；
 且切换会改变证书、需要再清一次数据。因此本轮采用 seapp 规则方案。
+
+## 实机回归（2026-10-16）：第二层闪退 = hidden-API 拦截（product sysconfig 白名单）
+
+seapp 修好后 zygote 特化不再 abort，但 finddevice 仍然在跑起来之后崩，这次是 **Java 异常**：
+
+```
+java.lang.NoSuchMethodError: No static method getBoolean(Landroid/content/ContentResolver;
+Ljava/lang/String;)Z in class Lmiui/settings/MiuiSettings$Global;
+... declaration of 'getBoolean(ContentResolver,String)' appears in /system/framework/framework.jar
+```
+
+**关键点：这个方法并没有丢。** `NoSuchMethodError` 在这里是 ART 对 **hidden API 黑名单**的
+报错文案，不是"类里真没有这个方法"。四条独立证据：
+
+| # | 证据 | 结论 |
+|---|---|---|
+| 1 | 同一 `framework.jar` 里 `MiuiSettings$Global.smali` 第 207 行就是该 `<deep_public>`-less 黑名单成员 | 方法存在，字节一致 |
+| 2 | `dumpsys package`：平台签名应用 `hiddenApiEnforcementPolicy=0`，重签后的 finddevice `=2` | 策略被提升为 enforce |
+| 3 | logcat：`hiddenapi: ... using linking: deemed denied` | ART 确实在拦 |
+| 4 | `settings put global hidden_api_policy 0` 后应用能起、不再崩 | 拦的就是 hidden API |
+
+**根因**：重签丢掉了 **platform 证书** → PackageManager 不再把它当平台签名 →
+`ApplicationInfo.hiddenApiEnforcementPolicy` 由平台应用的 `0`（关闭）变成 `2`（强制）。
+
+**修法（免重签、免 root、免清数据）**：把包名挂进 **product 分区的 hidden-API 白名单**。
+`SystemConfig.readHiddenApiWhitelistedApp` 接受 `<hidden-api-whitelisted-app package="..."/>`，
+而 product 目录以 `flags=-1` 读入（`allowApiWhitelisting=true`），于是置上
+`appInfoPrivateFlagsExt` 的 `0x10`（`PRIVATE_FLAG_IS_HIDDEN_API_WHITELISTED`），
+`hiddenApiEnforcementPolicy` 被强制回 `0`。
+
+本机自带的 `downloads`/`mtp` 包同样是**非平台证书却按 policy 0 运行**，走的正是这条路径，
+可作机制旁证。
+
+载荷（已入库）：[`etc/sysconfig/rmx5010-hiddenapi-package-whitelist.xml`](etc/sysconfig/rmx5010-hiddenapi-package-whitelist.xml)，
+落到镜像 `product/etc/sysconfig/rmx5010-hiddenapi-package-whitelist.xml`。
+
+> 诊断期间临时设过 `settings put global hidden_api_policy 0`，已用
+> `settings delete global hidden_api_policy` 复原（现为 null）。
+
+**构建与验证**：从已挂载基线 rsync → `mkfs.erofs -zlz4hc -C262144 -b4096 -T0 --mount-point=/product`
++ 由基线 xattr 生成 file-contexts 重建 product.img。`fsck.erofs` 干净；`simg2img` 往返字节一致；
+**全镜像 2477 个 inode 标签扫描 0 处 double-wrap / 0 处错标**；属主与权限保留；新 XML 标签
+`u:object_r:system_file:s0`。相对基线内容差 = **恰好 +1 文件**（即该 XML）；build.prop /
+MIUIFindDeviceCN.apk / DevicesAndroidOverlay.apk / product_seapp_contexts / 亮度 display XML 全部字节一致。
+
+**刷写**：仅 product，**无需清数据**（签名未变）：
+`fastboot -S 128M flash product_a images\product.img`。
