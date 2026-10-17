@@ -1,5 +1,10 @@
 # patches/finddevice-notz — 查找设备改包修复（不依赖 LSPosed）
 
+> ⚠️ **主线策略更新（2026-10-17 状态）**：
+> 经实机深入排查，改包重签名会使该包失去系统 Platform 签名，引发 `AccountManagerService.resolveAccountVisibility` 判定为 `NOT_VISIBLE`，并导致特权白名单链条连锁膨胀。
+> **当前 54 分区底包主线已完全恢复为官方原版 `MIUIFindDeviceCN.apk`（保留小米官方 Platform 签名与原厂 oat 预编译产物）**。
+> 本目录所有脚本、Smali 补丁与分析留作历史研究与备用参考记录。
+
 把已验证的 `FdNoTzFix` LSPosed 模块逻辑**直接打进 `MIUIFindDeviceCN.apk`**，让"查找设备"在没有
 root / 没有 LSPosed 的机器上也能工作，从而通过开机引导（Provision）。
 

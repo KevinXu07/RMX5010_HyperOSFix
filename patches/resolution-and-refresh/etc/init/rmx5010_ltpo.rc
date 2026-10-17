@@ -1,0 +1,4 @@
+﻿# Realme GT7 Pro (RMX5010) Native Event-Driven LTPO / ADFR Restore Helper
+# Hooks oplus_adfr_status_reset in kernel to auto-restore min_fps=10
+on property:sys.boot_completed=1
+    insmod /vendor/bin/rmx5010_ltpo_restore.ko min_fps=10 delay_ms=350 apply_on_load=1
