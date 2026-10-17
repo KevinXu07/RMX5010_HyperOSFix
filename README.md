@@ -29,8 +29,10 @@
 | 亮度曲线 + 圆角/状态栏高度 | product（displayconfig XML + DevicesAndroidOverlay） | ✅ 差分/资源核对 | ✅ 实机验证通过 | [补丁](patches/brightness-overlay/README.md) |
 | 音频爆音 / 切音"哔"声（appname 截断） | system_ext 重建（libaudiopolicymanagerimpl.so 补丁） | ✅ 差分/反汇编核对 | ✅ 实机验证通过 | [补丁](patches/audio-pop-fix/README.md) |
 | 分辨率列表（1.5K/1080p）+ 120Hz 刷新率 | product（nezha.xml + build.prop 动态帧率） | ✅ 差分/XML语法核对 | ✅ 实机验证通过 | [补丁](patches/resolution-and-refresh/README.md) |
+| 屏幕静止变暗发黄消除（阻断纸质护眼滤镜） | product（nezha.xml 策略 + displayconfig 曲线） | ✅ XML语法/参数核对 | ✅ 实机验证通过（mReadingModeCTLevel=0） | [补丁](patches/resolution-and-refresh/README.md) |
 | 原生内核级事件驱动 LTPO 降频恢复 | vendor 重建（rmx5010_ltpo_restore.ko + init 原生自启） | ✅ 符号/校验/ELF一致 | ✅ 实机验证通过（lsmod 常驻） | [补丁](patches/resolution-and-refresh/README.md) |
 | 相机 P010 厂商格式崩溃修复 | system（libnativewindow.so 扩展分支） | ✅ 差分/反汇编核对 | ✅ 实机验证通过 | [补丁](patches/camera-p010-fix/README.md) |
+| 相机全套成像与多摄落盘闭包（IMX906/LYT600/前摄/14路/fakejar） | product + odm 重建（OplusCamera 特权预置 + Provider stub） | ✅ 差分/标签/策略/fsck | ✅ 实机验证通过（主摄/前摄/长焦真实落盘） | [补丁](patches/camera-full-fix/README.md) |
 | NFC 功能（NXP SN220 + Xiaomi 协议栈） | system + vendor + product（XMNfcNci + 策略/属性） | ✅ 服务/属性/策略闭包 | ✅ 实机验证通过（mState=on） | [补丁](patches/nfc-nxp-fix/README.md) |
 | SELinux 闭包与 EROFS 重建规范 | — | ✅ | — | [规范](docs/SELinux闭包与EROFS重建规范.md) |
 | 分区血缘与刷写顺序 | — | ✅ | ✅（历史包） | [说明](docs/分区血缘与刷机顺序.md) |
