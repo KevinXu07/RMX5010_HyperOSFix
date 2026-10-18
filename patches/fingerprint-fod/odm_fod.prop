@@ -1,0 +1,6 @@
+# RMX5010 Ultrasonic FOD physical coordinates (1264x2780, Center 632,2146)
+persist.vendor.sys.fp.vendor=true
+persist.vendor.sys.fp.fod.location.X_Y=540,2054
+persist.vendor.sys.fp.fod.size.width_height=184,184
+persist.vendor.sys.fp.fod.us.target=528,2030,736,2258
+persist.vendor.sys.fp.fod.delay.fingerdown.ms=20

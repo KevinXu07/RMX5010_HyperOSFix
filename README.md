@@ -34,6 +34,8 @@
 | 相机 P010 厂商格式崩溃修复 | system（libnativewindow.so 扩展分支） | ✅ 差分/反汇编核对 | ✅ 实机验证通过 | [补丁](patches/camera-p010-fix/README.md) |
 | 相机全套成像与多摄落盘闭包（IMX906/LYT600/前摄/14路/fakejar） | product + odm 重建（OplusCamera 特权预置 + Provider stub） | ✅ 差分/标签/策略/fsck | ✅ 实机验证通过（主摄/前摄/长焦真实落盘） | [补丁](patches/camera-full-fix/README.md) |
 | NFC 功能（NXP SN220 + Xiaomi 协议栈） | system + vendor + product（XMNfcNci + 策略/属性） | ✅ 服务/属性/策略闭包 | ✅ 实机验证通过（mState=on） | [补丁](patches/nfc-nxp-fix/README.md) |
+| 超声波屏下指纹（FOD 物理中心 632,2146 + 特性声明 + UFF HAL） | product + odm 重建（nezha.xml + 权限声明 + odm 坐标） | ✅ 差分/参数/语法核对 | ✅ 实机验证通过（Strong Biometric 15 / 录入引导正常） | [补丁](patches/fingerprint-fod/README.md) |
+| 低共振触觉铃声（MiRemix.ogg 1.15MB 旗舰声学对齐） | product 重建（高品质低共振音频载荷替换） | ✅ 文件与 SHA256 核对 | ✅ 实机验证通过（听筒破音消除，线性马达震感紧实） | [补丁](patches/haptic-ringtone/README.md) |
 | SELinux 闭包与 EROFS 重建规范 | — | ✅ | — | [规范](docs/SELinux闭包与EROFS重建规范.md) |
 | 分区血缘与刷写顺序 | — | ✅ | ✅（历史包） | [说明](docs/分区血缘与刷机顺序.md) |
 | 历史修复（状态栏/灵动岛/相机/信号/音频/NFC/亮度…） | system/product/odm + KSU 模块 | 部分 | 部分 | [状态矩阵](docs/修复清单与状态矩阵.md) |

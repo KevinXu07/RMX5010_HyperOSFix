@@ -1,0 +1,11 @@
+--- product/etc/device_features/nezha.xml.orig
++++ product/etc/device_features/nezha.xml
+@@ -675,3 +675,3 @@
+ <!-- FingerPrint BEGIN -->
+-    <bool name="front_fingerprint_sensor">false</bool>
++    <bool name="front_fingerprint_sensor">true</bool>
+     <!-- fingerprint navigation event name list -->
+@@ -776,2 +776,3 @@
+     <!-- FOD solution -->
+     <integer name="fod_solution">3</integer>
++    <bool name="support_fod">true</bool>
