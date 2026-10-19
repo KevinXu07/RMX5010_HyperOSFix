@@ -10,6 +10,7 @@
 1. **设置无指纹入口**：系统「设置 -> 密码与安全」中缺少「指纹解锁」选项，框架层检测不到 `android.hardware.fingerprint` 硬件特性。
 2. **指纹服务未加载**：`dumpsys fingerprint` 提示 `Can't find service: fingerprint`，BiometricService 无法枚举到任何指纹传感器。
 3. **触控与光圈坐标错位**：如果误套用一加 13（OP13，PJZ110）的 2K 屏坐标，指纹提示图标与触控判定区相对物理超声波传感器向右偏 88px、向下偏 358px，导致无法对准传感器录入与识别。
+4. **录入秒弹失败（"提示添加指纹失败"）**：走完「设置 → 指纹 → 输 PIN → 录入指纹」流程后，按下手指瞬间报 HW_UNAVAILABLE。HAL logcat 关键行：`[FP_HAL][UltraSonicCore_default]: invalid cali data` → `notifyError(1)` → `onError(code=1, error=1, vendor_code=0)`。
 
 ---
 
@@ -44,6 +45,24 @@
 - **禁止在 `vendor_sepolicy.cil` 中越权授权**：向 `vendor_sepolicy.cil` 强加 `(allow system_server vendor_fp_prop ...)` 会直接触发 Android 15 Treble CTS neverallow 违规，导致早期 init 的 `secilc` 策略编译致命崩溃（第一屏卡死）。
 - **禁止在 `odm/build.prop` 写入系统命名空间属性**：`ro.hardware.*` 属于系统层属性，ODM 强写会导致属性空间解析异常；所有属性均必须收敛在合法的 `persist.vendor.*` 命名空间。
 
+### 4. 录入失败 `invalid cali data` — vendor.fingerprint.cali 属性缺失（2026-10-19 定位）
+
+UFF HAL 在 `UltraSonicCore::enroll` 入口有一道工厂校准状态闸（`fp_hal.elf` vaddr）：
+
+```
+0x24d24   bl   #0x4dec8             ; loadFpCaliState() — 读取内部校准标记
+0x24e28   bl   #0x4887c             ; getFactoryCaliState():
+                                      __system_property_get(
+                                         "vendor.fingerprint.cali", buf)
+                                      return (buf[0] == '1') ? 1 : 0
+0x24e2c   tbz  w0, #0, #0x250c0     ; bit0==0 → fail
+0x250c0   "invalid cali data"       ; → notifyError(1) → BiometricsFpSessionV3::onError(1,1,0)
+```
+
+- ColorOS 上该 prop 由工厂测试写 `1`；本包 `vendor_property_contexts` 完全没有 `vendor.fingerprint.`/`persist.vendor.fingerprint.`/`oplus.fingerprint.` 前缀映射 → 落到 `default_prop` → `hal_fingerprint_oppo` 对 `default_prop` 无 `property_service set` 权限 → HAL 写不进，永远读到空串 → enroll 秒拒。
+- 手动验证：`setprop vendor.fingerprint.cali 1` (root) 后走正常流程，HAL 日志走到 `DEVICE_ENTER_ENROLL success` + `sendCommand 2006 OK`，无 `invalid cali data`，等待手指按压。
+- 二进制备用修复（不推荐）：patch `0x24e2c` 的 `tbz w0,#0` 为 `tbnz w0,#0`（反转条件），或在 `bl` 之后立即 `mov w0,#1`。
+
 ---
 
 ## 实施方案
@@ -73,6 +92,32 @@ persist.vendor.sys.fp.fod.size.width_height=184,184
 persist.vendor.sys.fp.fod.us.target=528,2030,736,2258
 persist.vendor.sys.fp.fod.delay.fingerdown.ms=20
 ```
+
+### 三、`vendor.img`：补 `vendor.fingerprint.*` 属性映射与域授权
+
+**`vendor_property_contexts`** 追加（本仓库 `vendor_property_contexts.diff`）：
+```
+vendor.fingerprint.          u:object_r:vendor_fingerprint_prop:s0
+persist.vendor.fingerprint.  u:object_r:vendor_fingerprint_prop:s0
+oplus.fingerprint.           u:object_r:vendor_fingerprint_prop:s0
+```
+
+**`vendor_sepolicy.cil`** 追加（本仓库 `cali_prop.cil`）：
+```cil
+(type vendor_fingerprint_prop)
+(roletype object_r vendor_fingerprint_prop)
+(typeattributeset property_type (vendor_fingerprint_prop))
+(typeattributeset vendor_property_type (vendor_fingerprint_prop))
+(typeattributeset vendor_public_property_type (vendor_fingerprint_prop))
+
+(allow hal_fingerprint_oppo vendor_fingerprint_prop (property_service (set)))
+(allow hal_fingerprint_oppo vendor_fingerprint_prop (file (read getattr map open)))
+(allow hal_fingerprint_oppo prop_socket (sock_file (write)))
+(allow hal_fingerprint_oppo property_socket (sock_file (write)))
+(allow hal_fingerprint_oppo property_socket (unix_stream_socket (connectto)))
+```
+
+效果：HAL 在 `setFactoryCaliState` / 初始化路径上可写入 `vendor.fingerprint.cali=1`，enroll 入口的 `getFactoryCaliState` 闸读回 `1`，通过校验进入 TA enroll。
 
 ---
 
@@ -108,4 +153,16 @@ persist.vendor.sys.fp.fod.delay.fingerdown.ms=20
    # 输出：
    # Starting: Intent { act=android.settings.FINGERPRINT_SETTINGS }
    # 前台焦点成功激活 com.android.settings/.password.ChooseLockGeneric（前置锁屏凭据与指纹录入引导）
+   ```
+5. **enroll 校准闸验证（2026-10-19 实机 acbefdc7）**：
+   ```bash
+   # 未修复：HAL init 阶段 vendor.fingerprint.cali setprop 被 SELinux 拒
+   #   E [FP_HAL][FpCa]: can not set prop vendor.fingerprint.cali
+   # 修复后 setprop vendor.fingerprint.cali 1（或 sepolicy 让 HAL 自写）→ 触发录入：
+   12:31:59.469  [UltraSonicCore_default]: [enroll] enroll gid = 0, timeout = 0
+   12:31:59.470  [FPDevice]: [controlTp] mode = 1
+   12:32:00.417  [FPDevice]: OplusTouch write node 196, value = 1, result:1
+   12:32:00.417  [UltraSonicCore_default]: set DEVICE_ENTER_ENROLL success
+   12:32:00.451  [FpCa]: sendCommand take time 33 ms
+   # 无 invalid cali data / notifyError / onError → 正常等待手指按压
    ```

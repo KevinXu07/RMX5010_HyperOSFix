@@ -1,0 +1,8 @@
+--- vendor/etc/selinux/vendor_property_contexts.orig
++++ vendor/etc/selinux/vendor_property_contexts
+@@ -N,N +N,N @@
+ persist.vendor.fingerprint.optical.monitor u:object_r:vendor_finerprint_optical_rawdata:s0
++# RMX5010 UFF cali prop — required by UltraSonicCore::enroll getFactoryCaliState()
++vendor.fingerprint.          u:object_r:vendor_fingerprint_prop:s0
++persist.vendor.fingerprint.  u:object_r:vendor_fingerprint_prop:s0
++oplus.fingerprint.           u:object_r:vendor_fingerprint_prop:s0

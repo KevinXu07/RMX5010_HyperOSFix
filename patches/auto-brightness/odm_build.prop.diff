@@ -1,0 +1,9 @@
+--- a/build.prop	(odm partition, lines 31-36)
++++ b/build.prop
+@@
+ ro.build.display.id=RMX5010_11_A.01
+ ro.build.display.full_id=RMX5010_11_A.01_260519
+-ro.vendor.oplus.sensor.high_pwm_rgb=true
+ ro.vendor.oplus.sensor.brl_receive=true
+ ro.vendor.oplus.sensor.lb_algo=true
+ ro.vendor.oplus.sensor.use_black_mode=true

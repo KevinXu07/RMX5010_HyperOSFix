@@ -1,0 +1,23 @@
+; RMX5010 ultrasonic FOD — restore ColorOS factory-cali prop gating
+; Symptom: enroll instantly fails with "invalid cali data" → notifyError(1) → HW_UNAVAILABLE
+; Root cause: UltraSonicCore::enroll @0x24b00 calls getFactoryCaliState @0x4887c,
+;             which reads sys prop "vendor.fingerprint.cali" and requires byte[0]=='1'.
+;             On stock ColorOS the factory flow writes 1; on HyperOS the prop has no
+;             property_contexts mapping, falls back to default_prop which
+;             hal_fingerprint_oppo has no set permission on → prop always empty →
+;             every enroll rejects at 0x24e2c tbz.
+; Fix: map vendor.fingerprint.* → new vendor_fingerprint_prop, grant
+;      hal_fingerprint_oppo set+get on it. HAL then manages the prop itself
+;      (writes 1 after a successful factory TA cali handshake).
+
+(type vendor_fingerprint_prop)
+(roletype object_r vendor_fingerprint_prop)
+(typeattributeset property_type (vendor_fingerprint_prop))
+(typeattributeset vendor_property_type (vendor_fingerprint_prop))
+(typeattributeset vendor_public_property_type (vendor_fingerprint_prop))
+
+(allow hal_fingerprint_oppo vendor_fingerprint_prop (property_service (set)))
+(allow hal_fingerprint_oppo vendor_fingerprint_prop (file (read getattr map open)))
+(allow hal_fingerprint_oppo prop_socket (sock_file (write)))
+(allow hal_fingerprint_oppo property_socket (sock_file (write)))
+(allow hal_fingerprint_oppo property_socket (unix_stream_socket (connectto)))
