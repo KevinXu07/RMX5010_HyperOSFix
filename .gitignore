@@ -25,3 +25,7 @@ __pycache__/
 *.pyc
 .DS_Store
 Thumbs.db
+
+# LSPosed 模块构建中间产物
+lsposed-src/build/
+*.idsig

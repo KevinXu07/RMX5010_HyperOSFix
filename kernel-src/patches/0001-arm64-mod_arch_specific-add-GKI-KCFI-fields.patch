@@ -1,0 +1,15 @@
+--- a/arch/arm64/include/asm/module.h
++++ b/arch/arm64/include/asm/module.h
+@@ -48,6 +48,12 @@ struct mod_arch_specific {
+ 	/* for CONFIG_DYNAMIC_FTRACE */
+ 	struct plt_entry	*ftrace_trampolines;
+ 
++#ifdef CONFIG_CFI_CLANG
++	/* CFI type ids for this module (Android GKI) */
++	unsigned int		num_kcfi_tids;
++	u32			*kcfi_tid_array;
++#endif
++
+ 	ARM64_MODULE_KVM_ARCHDATA
+ };
+ 

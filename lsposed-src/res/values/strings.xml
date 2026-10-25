@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">RMX5010 HyperOS Fix</string>
+    <string name="module_description">真我 GT7 Pro 移植澎湃 OS4：F4 单击/双击唤醒与距离门控、抬起亮屏、FOD 移动/口袋识别、指纹按压事件桥接、指纹速启 450ms、步数传感器</string>
+</resources>

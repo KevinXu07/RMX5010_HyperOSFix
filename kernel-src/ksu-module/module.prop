@@ -1,0 +1,6 @@
+id=rmx5010_fod_bridge
+name=RMX5010 FOD Touch Bridge
+version=1.0.0
+versionCode=1
+author=KevinXu07
+description=把 Oplus 触摸驱动发布的指纹区按下/抬起事件桥接成 KEY_F5 输入事件（FOD 灵动区域修复用）
