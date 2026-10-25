@@ -130,3 +130,18 @@ dmesg_restrict 挡住 shell),`setprop` 实测 "Failed to set property ... See dm
 待任意 root 方案(KSU/Magisk patch boot)落地后:`dmesg | grep avc` 一条日志即可
 定位(预期是某个未授权 domain 的 property_service set,或 vendor build.prop
 加载路径的额外过滤),然后一行为 CIL。
+
+### 2026-10-25 终版更正:五项 prop 一直都在,是 shell getprop 的可见性假象
+
+SukiSU root 落地后用 root 视角复查:`getprop`(root)可见全部六条
+(mitouch/phonecase/reader_only/repair/secure_display_optim/wallet_fusion 全=1),
+而 shell 域无 `vendor_nfc_mi_prop:file read` 授权 → shell 的 getprop 对该上下文
+的属性返回空。此前"运行时未生效"的三轮排查全部是**验证方法假象**:
+property 存储按 SELinux 上下文分文件,无权域查询返回空而非报错。
+
+实际状态:product build.prop 的投递自 round-2 起就生效(init 经 property_type
+通配授权可 set);本轮追加的 vendor CIL(allow init set/read)保留作为显式化;
+XMNfcNci 的读取域 `system_app_202404` factory 策略本就授权。NFC 全链路闭合。
+
+**规范补一行:排查"prop 不存在"时,先换 root 视角 getprop 再下结论;
+shell 视角的空可能是权限可见性假象,不是未加载。**
