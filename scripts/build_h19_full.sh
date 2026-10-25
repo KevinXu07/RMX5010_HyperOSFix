@@ -43,6 +43,11 @@ for img in system system_ext product odm vendor init_boot mi_ext mi_product; do
     log "  extracted $img ($(stat -c%s "$d/$img.img") B)"
   fi
 done
+# 云端清盘:载荷用完即删(KEEP_INTERMEDIATE=1 时保留)
+if [ "${KEEP_INTERMEDIATE:-0}" != "1" ]; then
+  rm -f "$PAYLOAD_H" "$PAYLOAD_F"
+  log "  payloads removed (磁盘让位)"
+fi
 
 # ---------------------------------------------------------------- 1. ODM
 log "Phase 1: ODM(账号闭包 + 身份 + high_pwm_rgb 删除)"
@@ -97,6 +102,11 @@ PY
 mkfs.erofs --quiet -zlz4 -C262144 -b4096 -T0 --mount-point=/odm \
   --file-contexts="$W/odm_contexts" "$OUT/images/odm.raw.img" "$ODM_S" >/dev/null 2>&1
 fsck.erofs "$OUT/images/odm.raw.img" >/dev/null && log "  odm fsck OK"
+if [ "${KEEP_INTERMEDIATE:-0}" != "1" ]; then
+  img2simg "$OUT/images/odm.raw.img" "$OUT/images/odm.img" 4096
+  rm -f "$OUT/images/odm.raw.img" "$W/odm_f.raw" "$W/images_odm/odm.img"
+  log "  odm sparse 化并清盘"
+fi
 
 # ---------------------------------------------------------------- 2. VENDOR
 log "Phase 2: VENDOR(账号闭包 + NFC CIL/props + LTPO 模块)"
@@ -162,6 +172,11 @@ PY
 mkfs.erofs --quiet -zlz4 -C262144 -b4096 -T0 --mount-point=/vendor \
   --file-contexts="$W/ven_contexts" "$OUT/images/vendor.raw.img" "$VEN_S" >/dev/null 2>&1
 fsck.erofs "$OUT/images/vendor.raw.img" >/dev/null && log "  vendor fsck OK"
+if [ "${KEEP_INTERMEDIATE:-0}" != "1" ]; then
+  img2simg "$OUT/images/vendor.raw.img" "$OUT/images/vendor.img" 4096
+  rm -f "$OUT/images/vendor.raw.img" "$W/ven_f.raw" "$W/images_vendor/vendor.img"
+  log "  vendor sparse 化并清盘"
+fi
 
 # ---------------------------------------------------------------- 3. SYSTEM
 log "Phase 3: SYSTEM(mi_ext 合并 + 信号/MTP/NFC)"
@@ -211,6 +226,11 @@ PY
 mkfs.erofs --quiet -zlz4hc -b4096 -T0 --mount-point=/ \
   --file-contexts="$W/sys_contexts" "$OUT/images/system.raw.img" "$SYS_S/system" >/dev/null 2>&1
 fsck.erofs "$OUT/images/system.raw.img" >/dev/null && log "  system fsck OK"
+if [ "${KEEP_INTERMEDIATE:-0}" != "1" ]; then
+  img2simg "$OUT/images/system.raw.img" "$OUT/images/system.img" 4096
+  rm -f "$OUT/images/system.raw.img" "$W/sys_f.raw" "$W/images_system/system.img"
+  log "  system sparse 化并清盘"
+fi
 
 # ---------------------------------------------------------------- 4. PRODUCT
 log "Phase 4: PRODUCT(DPI/NFC prop/曲线/刷新率门禁/灵动岛)"
@@ -263,6 +283,11 @@ PY
 mkfs.erofs --quiet -zlz4hc -b4096 -T0 --mount-point=/product \
   --file-contexts="$W/pro_contexts" "$OUT/images/product.raw.img" "$PRO_S" >/dev/null 2>&1
 fsck.erofs "$OUT/images/product.raw.img" >/dev/null && log "  product fsck OK"
+if [ "${KEEP_INTERMEDIATE:-0}" != "1" ]; then
+  img2simg "$OUT/images/product.raw.img" "$OUT/images/product.img" 4096
+  rm -f "$OUT/images/product.raw.img" "$W/pro_f.raw" "$W/images_product/product.img"
+  log "  product sparse 化并清盘"
+fi
 
 # ---------------------------------------------------------------- 5. system_ext
 log "Phase 5: system_ext(直通重建,保持 xattr)"
@@ -274,10 +299,13 @@ mkdir -p "$SE_S"; cp -a "$M/." "$SE_S/"; umount "$M"
 mkfs.erofs --quiet -zlz4hc -b4096 -T0 --mount-point=/system_ext \
   --file-contexts="$W/sys_contexts" "$OUT/images/system_ext.raw.img" "$SE_S" >/dev/null 2>&1
 fsck.erofs "$OUT/images/system_ext.raw.img" >/dev/null && log "  system_ext fsck OK"
+img2simg "$OUT/images/system_ext.raw.img" "$OUT/images/system_ext.img" 4096
+rm -f "$OUT/images/system_ext.raw.img" "$W/images_system_ext/system_ext.img"
 
 # ---------------------------------------------------------------- 6. sparse + vbmeta + 清单
 log "Phase 6: sparse 化 + avboff vbmeta + 哈希"
 for p in system system_ext product odm vendor; do
+  [ -f "$OUT/images/$p.raw.img" ] || continue
   img2simg "$OUT/images/$p.raw.img" "$OUT/images/$p.img" 4096
   rm -f "$OUT/images/$p.raw.img"
 done

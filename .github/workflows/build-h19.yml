@@ -1,82 +1,83 @@
 name: build-h19
 
-# RMX5010 haotian OS4.0.0.19 移植包构建
+# RMX5010 haotian OS4.0.0.19 移植包构建(直链/云端模式)
 #
-# 运行模式(二选一):
-#   A) self-hosted runner(推荐):在 WSL(Ubuntu, root)里注册 runner 并打上
-#      "wsl-rmx5010" 标签,payload 用本机固定路径,产物落 E:\code\modify。
-#      前提(本机已具备): erofs-utils / simg2img+img2simg / secilc /
-#      smali+baksmali(libsmali-java) / java / python3,以及两份 payload:
-#        /root/haotian/payload.bin            (haotian OS4.0.0.19 完整 OTA)
-#        /root/factory_1607/payload.bin       (RMX5010 16.0.7.201 完整 OTA)
-#      ——若无,设 inputs.payload_haotian_url / payload_factory_url 为直链,
-#        工作流会先下载(仅方案 B 或本机无缓存时)。
-#   B) 云端 runner(ubuntu-latest):把 PAYLOAD_URL_* 指向自己托管的分片直链;
-#      磁盘 14~30GB,需接受分阶段清理(脚本已按分区流式处理)。
+# 用法: 手动触发(Actions → build-h19 → Run workflow),填两份 payload 的直链:
+#   - haotian OS4.0.0.19 完整 OTA payload.bin (≈8.3GB)
+#   - RMX5010 16.0.7.201 完整 OTA payload.bin (≈9.4GB)
+# 直链来源: 自己的网盘/对象存储直链,或分卷上传 GitHub Release(单文件 ≤2GB,
+# 多个 URL 用空格分隔,工作流按顺序下载后 cat 合并)。
 #
-# 产物:haotian_work/h19_package/ 下的整套刷写镜像 + sha256 清单。
+# 磁盘说明: ubuntu-latest 约 21GB 可用——构建脚本按"载荷用完即删、中间产物
+# 随阶段清理"设计,峰值控制在 ~20GB 内。更大余量可换 ubuntu-24.04 或
+# ubuntu-latest-large(付费)。
+#
+# 产物: artifacts 里的 sha256 清单 + 刷写镜像说明(镜像本体按阶段直接归档)。
 
 on:
   workflow_dispatch:
     inputs:
+      payload_haotian_urls:
+        description: 'haotian payload 直链(多个用空格分隔,自动合并分卷)'
+        type: string
+        required: true
+      payload_factory_urls:
+        description: 'RMX5010 16.0.7.201 payload 直链(多个用空格分隔)'
+        type: string
+        required: true
       flash:
-        description: '构建完成后自动刷入本机(仅方案 A,手机需在 fastbootd)'
+        description: '构建后刷机(仅 self-hosted 有效,云端忽略)'
         type: boolean
         default: false
-      payload_haotian_url:
-        description: '可选:haotian payload.bin 直链(留空=用本机 /root/haotian/payload.bin)'
-        type: string
-        default: ''
-      payload_factory_url:
-        description: '可选:RMX5010 16.0.7.201 payload.bin 直链'
-        type: string
-        default: ''
 
 jobs:
   build:
-    runs-on: ${{ (inputs.payload_haotian_url == '' && inputs.payload_factory_url == '') && 'self-hosted' || 'ubuntu-latest' }}
-    timeout-minutes: 180
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
 
-      - name: 工具链自检(erofs-utils/simg2img/secilc/smali/java/python3)
+      - name: 工具链安装(erofs-utils/simg2img/secilc/smali/java)
         run: |
           set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq erofs-utils android-sdk-libsparse-utils secilc libsmali-java openjdk-17-jre-headless || true
           for t in mkfs.erofs fsck.erofs img2simg simg2img secilc smali baksmali java python3; do
             command -v $t >/dev/null || { echo "缺少 $t"; exit 1; }
           done
           echo "工具链 OK"
 
-      - name: payload 就位(方案 B:下载;方案 A:校验本机)
+      - name: payload 下载(支持分卷合并)
         run: |
           set -e
-          mkdir -p /root/haotian /root/factory_1607
-          if [ -n "${{ inputs.payload_haotian_url }}" ]; then
-            curl -L --retry 3 -o /root/haotian/payload.bin "${{ inputs.payload_haotian_url }}"
-          fi
-          if [ -n "${{ inputs.payload_factory_url }}" ]; then
-            curl -L --retry 3 -o /root/factory_1607/payload.bin "${{ inputs.payload_factory_url }}"
-          fi
-          [ -f /root/haotian/payload.bin ]       || { echo "缺 haotian payload"; exit 1; }
-          [ -f /root/factory_1607/payload.bin ] || { echo "缺 factory payload"; exit 1; }
+          mkdir -p /root/haotian /root/factory_1607 "$RUNNER_TEMP"
+          i=0
+          for u in ${{ inputs.payload_haotian_urls }}; do
+            i=$((i+1)); curl -L --retry 3 -o "$RUNNER_TEMP/h_part$i" "$u"
+          done
+          if [ "$i" -gt 1 ]; then cat "$RUNNER_TEMP"/h_part* > /root/haotian/payload.bin; rm -f "$RUNNER_TEMP"/h_part*;
+          else mv "$RUNNER_TEMP/h_part1" /root/haotian/payload.bin; fi
+          i=0
+          for u in ${{ inputs.payload_factory_urls }}; do
+            i=$((i+1)); curl -L --retry 3 -o "$RUNNER_TEMP/f_part$i" "$u"
+          done
+          if [ "$i" -gt 1 ]; then cat "$RUNNER_TEMP"/f_part* > /root/factory_1607/payload.bin; rm -f "$RUNNER_TEMP"/f_part*;
+          else mv "$RUNNER_TEMP/f_part1" /root/factory_1607/payload.bin; fi
           ls -la /root/haotian/payload.bin /root/factory_1607/payload.bin
+          df -h / | tail -1
 
-      - name: 构建整套移植包(提取→system→product→odm→vendor→vbmeta→打包)
+      - name: 构建整套移植包(载荷用完即删,分阶段清盘)
         run: |
           set -e
-          bash scripts/build_h19_full.sh
+          KEEP_INTERMEDIATE=0 bash scripts/build_h19_full.sh
 
-      - name: 刷写(可选,fastbootd 刷 odm/vendor/system/system_ext/product + 重启)
-        if: ${{ inputs.flash }}
-        run: |
-          set -e
-          bash scripts/flash_h19_all.sh
-
-      - name: 上传产物清单与哈希
+      - name: 归档刷写镜像
         uses: actions/upload-artifact@v4
         with:
-          name: h19-package-manifest
+          name: h19-flashable-images
           path: |
-            /root/haotian_work/h19_package/sha256_images.txt
-            /root/haotian_work/h19_package/BUILD_INFO.txt
+            /root/h19_build/h19_package/images/*.img
+            /root/h19_build/h19_package/sha256_images.txt
+            /root/h19_build/h19_package/BUILD_INFO.txt
           if-no-files-found: error
+          compression-level: 0
