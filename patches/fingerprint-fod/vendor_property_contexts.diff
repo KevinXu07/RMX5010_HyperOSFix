@@ -6,3 +6,12 @@
 +vendor.fingerprint.          u:object_r:vendor_fingerprint_prop:s0
 +persist.vendor.fingerprint.  u:object_r:vendor_fingerprint_prop:s0
 +oplus.fingerprint.           u:object_r:vendor_fingerprint_prop:s0
+
+# 2026-10-26 FOD 光圈/类型（ro.hardware.fp.fod* 被 Realme 默认标成 vendor_default_prop，
+# system_app 读不到 -> GXZW_SENSOR=false）。精确重标到 vendor_frc_prop：
++ro.hardware.fp.fod                        u:object_r:vendor_frc_prop:s0
++ro.hardware.fp.fod.c                      u:object_r:vendor_frc_prop:s0
++ro.hardware.fp.fod.location               u:object_r:vendor_frc_prop:s0
++ro.hardware.fp.fod.touch.ctl.version      u:object_r:vendor_frc_prop:s0
++persist.vendor.sys.fp.fod.                u:object_r:vendor_frc_prop:s0
++persist.vendor.sys.fp.vendor              u:object_r:vendor_frc_prop:s0
