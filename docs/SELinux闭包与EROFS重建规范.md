@@ -133,3 +133,14 @@ secilc -m -M true -G -N -c 30 \
 
 推论：**任何"改 prop 没用/换参数没用"的镜像级故障，先做新旧镜像字节级 diff，
 把差异归零再谈其它假设。**
+
+## 9. 刷写脚本事故实例（2026-10-25 vendor 分区误刷 odm_a）
+
+复用的快速刷写脚本把 `flash odm_a` 写死在函数体里，传入 vendor 镜像时把
+**vendor 内容刷进了 odm 分区**（erofs 合法、fsck 可过，但内容完全错误）→ 卡第一屏。
+
+规范：
+1. 分区名必须是**脚本参数**，不得写死；flash 前打印 `分区名 ← 镜像sha256前8位` 让人确认。
+2. 一次 fastbootd 会话刷多个分区时，逐分区校验退出码后再 reboot。
+3. 镜像与分区存在**内容对应关系**（odm 树含 /odm/etc/build.prop，vendor 树含
+   /vendor/etc/selinux），刷错时镜像内部结构完全合法，无法靠 fsck 拦截——只能靠流程。
