@@ -96,3 +96,15 @@
 - `product.img` (sparse): `69b185a3322f1ec127c41804f5a85c66eff912d2269481c02e9fbcde40184a34`
 - `vendor.img` (sparse): `ff855fbac9fb73ee85e77bbb5c41fce4a64f53e0694d5ce840615cad9068b4f8`
 - `verify_package.ps1 -Strict` 54/54 全部分区哈希严格通过。
+
+## 2026-10-25 补充(haotian 主线):框架门禁迁移完成
+
+haotian OS4.0.0.19 底上迁移本项目(仅 product.img 层,LTPO 内核模块未迁移):
+- device_features/haotian.xml(非 nezha.xml):defaultFps 60→120、
+  screen_resolution_supported 1440,1080→**1264,1080**(本机 1.5K 屏宽 1264)、
+  support_screen_paper_mode/support_paper_eyecare→false;
+- product build.prop:+dynamic_refresh_rate +persist.sys.miui_resolution=1264,2780,500;
+- 曲线文件删 idleScreenRefreshRateTimeout 块(本底 1 处)。
+实机:defaultFps=120、supportedRefreshRates [120,60,40,30,24,20]、Enforcing ✅。
+**待观察**:切应用/开相机时 ADFR 内核重置是否把 120Hz 打回 60——若发生,迁移
+LTPO 模块(rmx5010_ltpo_restore.ko,需重建 vendor.img,haotian 底 vendor 管线已通)。
