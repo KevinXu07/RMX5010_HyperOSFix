@@ -77,3 +77,13 @@ fastboot reboot
 haotian 底屏幕 uniqueId 实测仍为 local:4630947008615494291(硬件/DRM 上报,跨 ROM 稳定)。
 框架侧验证:dumpsys display 显示 mDdcAutoBrightnessAvailable=true、
 mBrightnessLevelsLuxMap 39 级 lux(2~30000)已进 ABC。
+
+## 2026-10-25 补充(haotian 主线):几何迁移完成
+
+h19 底(0.19 donor)的 DevicesAndroidOverlay.apk 为 haotian 自带(16,892B,
+圆角 140/挖孔 81×169/状态栏高度 donor 值),已换回本验证版(10,911B)。
+实机:roundedCorners radius=116 ✓、cutoutSpec M 0,0 H -34.0 V 140 H 34.0 V 0 H 0 Z
+(68×140)✓、Enforcing 开机正常。产品镜像为 haotian_work/product_geom.img。
+未迁移:DevicesOverlay.apk(SystemUI target)的 status_bar_padding_top/bottom
+与灵动岛位移——证书锁死,需 SukiSU bind-mount 模块 + 手机端 MT管理器改 arsc
+(方案见 os4/docs/overlay_双路径机制与可修改性.md),待用户需要再做。
