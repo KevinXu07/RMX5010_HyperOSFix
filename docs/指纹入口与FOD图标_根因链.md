@@ -36,7 +36,22 @@ FingerprintEntryPreferenceController.getAvailabilityStatus()
   `vendor.fingerprint.cali=1`，vendor_init 对该属性类型（vendor_default_prop）有 set 权限。
 - 实机验证：可正常录入。
 
-## 3. FOD 图标 / 指纹类型 —— 未解决（当前卡点）
+## 3. FOD 图标 / 指纹类型 —— 已解决
+
+**最终根因**：`ro.hardware.fp.fod`、`ro.hardware.fp.fod.c` 在真机上被 Realme 的
+`property_contexts` 按 `ro.hardware.` 前缀标成 `vendor_default_prop`，而 Settings/SystemUI
+（system_app）对该类型没有 file read 权限，读到的值是空 → `MiuiConfigs.GXZW_SENSOR=false`
+→ 系统走“非屏下（home 键）”UI，也不创建 FOD 图标视图。
+
+**修复**：在 vendor_property_contexts 里把这几个名字精确映射到 `vendor_frc_prop`
+（vendor_init 可写、system_app/system_server 可读）。重启后：
+
+- `getprop -Z ro.hardware.fp.fod` → `u:object_r:vendor_frc_prop:s0`，值 true；
+- logcat 出现 `MiuiGxzwManager` 日志，SurfaceFlinger 出现 `VRI-gxzw_anim` / `VRI-gxzw_touch` 层；
+- 锁屏底部中央出现指纹光圈，截图实测圆心 ≈ (630, 2150)，与配置 (632, 2146) 一致。
+
+以下是排查过程（保留供参考）：
+
 
 已做但无效的尝试：
 

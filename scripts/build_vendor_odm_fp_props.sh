@@ -19,6 +19,10 @@ echo "== [1] vendor property contexts =="
 grep -q "^persist.vendor.sys.fp.fod\." "$VCTX" || cat >> "$VCTX" <<'EOF'
 persist.vendor.sys.fp.fod. u:object_r:vendor_frc_prop:s0
 persist.vendor.sys.fp.vendor u:object_r:vendor_frc_prop:s0
+ro.hardware.fp.fod u:object_r:vendor_frc_prop:s0
+ro.hardware.fp.fod.c u:object_r:vendor_frc_prop:s0
+ro.hardware.fp.fod.location u:object_r:vendor_frc_prop:s0
+ro.hardware.fp.fod.touch.ctl.version u:object_r:vendor_frc_prop:s0
 EOF
 tail -3 "$VCTX"
 
