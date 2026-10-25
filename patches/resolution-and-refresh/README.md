@@ -98,3 +98,17 @@ haotian OS4.0.0.19 底上迁移本项目(仅 product.img 层,LTPO 内核模块�
 实机:defaultFps=120、supportedRefreshRates [120,60,40,30,24,20]、Enforcing ✅。
 **待观察**:切应用/开相机时 ADFR 内核重置是否把 120Hz 打回 60——若发生,迁移
 LTPO 模块(rmx5010_ltpo_restore.ko,需重建 vendor.img,haotian 底 vendor 管线已通)。
+
+## 2026-10-25 补充(haotian 主线):LTPO 模块迁移完成,实机加载验证
+
+- 交付:`rmx5010_ltpo_restore.ko` → `/vendor/bin/`(vendor_file)+
+  `rmx5010_ltpo.rc` → `/vendor/etc/init/`(vendor_configs_file),vendor.img 重建刷入;
+- 实机:`init: processing action (sys.boot_completed=1) from rmx5010_ltpo.rc:3` →
+  insmod 成功,`op13_ltpo_restore: active, min_fps=10 delay_ms=350`(模块内名沿用
+  op13 构建旧名),kretprobe 挂 oplus_adfr_status_reset,boot 早期即向面板发出
+  `qcom,mdss-dsi-hpwm-adfr-min-fps-1-command`(ADFR 下限 10Hz 生效);
+- 注意 1:rc 文件勿带 UTF-8 BOM(本次实测带 BOM 也能被 init 解析,但不应依赖);
+- 注意 2:观测面板自浮**不要用** dynamic_osc_clock(cmd 模式位时钟恒定不变),
+  应以 ADFR dmesg 命令序列 / 待机功耗为准;
+- 注意 3:静置无浮动假象的另一来源——shell 视角 getprop/属性查询受 SELinux
+  可见性限制(参见 nfc-nxp-fix 2026-10-25 终版更正)。
