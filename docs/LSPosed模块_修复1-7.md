@@ -27,6 +27,28 @@ NDK、以及一加特有硬件的部分（LHDC、核心破解、通知、IFAA、
 - 包名改为 `local.mio.gt7profodfix`，但**桥设备名仍是 `op13_fod_bridge`**，
   这是 system_server 侧 `isFodBridgeEvent()` 的匹配依据，改名要同步改两处。
 
+## 2.1 haotian OS4（0.19）目标类静态核实（2026-10-25）
+
+拉取真机 `MiuiSystemUI.apk`（`/system_ext/priv-app/MiuiSystemUI/MiuiSystemUI.apk`）与
+`services.jar` 后逐类确认：
+
+| 类 | 所在 | 结论 |
+|---|---|---|
+| `com.miui.keyguard.biometrics.fod.MiuiGxzwSensor` | MiuiSystemUI classes3.dex | ✅ |
+| `...fod.MiuiGxzwManager` | classes.dex/2/3 | ✅ |
+| `...fod.MiuiGxzwIconView` / `MiuiGxzwQuickOpenView` / `MiuiGestureMonitor` | classes3 / classes | ✅ |
+| `com.android.keyguard.injector.KeyguardSensorInjector` | 三个 dex 均有 | ✅（注意包名是 `com.android.keyguard.injector`，不是 `com.miui.keyguard`） |
+| `com.android.systemui.shade.PulsingGestureListener` | classes2.dex | ✅ |
+| `com.android.server.policy.PhoneWindowManager` | services.jar | ✅ |
+| `com.miui.server.stepcounter.StepCounterManagerService` | **`/system_ext/framework/miui-services.jar`** classes2.dex | ✅（启动类路径，system_server 可见） |
+| `miui.util.FeatureParser` | framework.jar（启动类路径） | ✅ |
+
+真机输入设备能力（`getevent -pl`）：
+
+- `touchpanel`（event5）支持 `KEY_F4`，还有两个厂商码 `02f8/02f9`；
+- `oplus_fp_input`（event3）只有 `KEY_W/E/R`，锁屏时不上报——证实 FOD 事件只能靠内核桥；
+- 我们的桥 `op13_fod_bridge`（event8/9，随启动时序变化）只有 `KEY_F5`。
+
 ## 3. 构建（离线，无需 Gradle/网络）
 
 ```bash
