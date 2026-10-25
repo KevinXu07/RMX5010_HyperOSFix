@@ -87,3 +87,16 @@ h19 底(0.19 donor)的 DevicesAndroidOverlay.apk 为 haotian 自带(16,892B,
 未迁移:DevicesOverlay.apk(SystemUI target)的 status_bar_padding_top/bottom
 与灵动岛位移——证书锁死,需 SukiSU bind-mount 模块 + 手机端 MT管理器改 arsc
 (方案见 os4/docs/overlay_双路径机制与可修改性.md),待用户需要再做。
+
+## 2026-10-25 补充(haotian 主线):灵动岛/状态栏 padding 固化完成(免模块)
+
+h19 自带 DevicesOverlay.apk(SystemUI target,23.7MB)的 resources.arsc 做
+字节级原位补丁(13 处 dimension,零长度变化):
+- cut_out_center_y ×5 配置 → 72px(0x4800,12.25 用户确认位置)
+- status_bar_padding_top ×5 配置 → 14px(0x0E00,12.22 实际命中值)
+- dynamic_island_radius/expanded_shadow_radius/expanded_shadow_offset_y
+  → OS3 原始 dp 编码(28.672974/57.345978/19.11499,取自 DevicesOverlay-os3.apk)
+签名块原样拼回(不要重签):预置扫描容忍摘要失效(TeleService 先例),
+OMS 证书匹配看签名块内证书(原证书=匹配保持)。
+实机回读:cmd overlay lookup 三项全部命中(72px/14px/28.672974dip)✅。
+补丁脚本:haotian_work/build_island.py(arsc 解析/定位/补丁/重打包/拼块一体)。
