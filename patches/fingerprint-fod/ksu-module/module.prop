@@ -1,0 +1,6 @@
+id=rmx5010_fp_props
+name=RMX5010 FOD Props
+version=1.0.0
+versionCode=1
+author=KevinXu07
+description=补齐 HyperOS 指纹入口/FOD 图标所需的 7 个属性（坐标按 RMX5010 1264x2780 实测：中心 632,2146）

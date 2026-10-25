@@ -166,3 +166,59 @@ oplus.fingerprint.           u:object_r:vendor_fingerprint_prop:s0
    12:32:00.451  [FpCa]: sendCommand take time 33 ms
    # 无 invalid cali data / notifyError / onError → 正常等待手指按压
    ```
+
+---
+
+## 2026-10-26 h19 主线实机进展（haotian 0.19 + 原厂 16.0.7.201）
+
+> 本节记录当前设备的真实状态与已验证结论，避免后续重复踩坑。上面 OS3 时代的
+> 「实机验证证据」来自当时 nezha/OS3 底包，结论仍可参照，但不能直接当作 h19 的现状。
+
+### 已完成并刷入（product_a）
+
+1. **`/product/etc/permissions/android.hardware.fingerprint.xml`**（新增）
+   ```xml
+   <?xml version="1.0" encoding="utf-8"?>
+   <permissions>
+       <feature name="android.hardware.fingerprint" />
+   </permissions>
+   ```
+   这是 h19 底包**完全缺失**的一项。加之前：`pm list features` 无指纹特性、
+   `dumpsys biometric` 传感器列表为空、日志 `SystemServiceRegistry: No service published for: fingerprint`。
+   加之后（重启生效）：
+   - `pm list features | grep fingerprint` → `feature:android.hardware.fingerprint`；
+   - `dumpsys biometric` → `ID(1), oemStrength: 15, modality 2`；
+   - `dumpsys fingerprint` → `sensorId: 1, provider: FingerprintProvider`。
+2. **`/product/etc/build.prop`** 追加 7 个属性（内容见 `product_build.prop.append`，
+   坐标 540,2054 / 184,184 / 528,2030,736,2258 为 RMX5010 实测值）。
+3. **`/product/etc/device_features/haotian.xml`**
+   - `front_fingerprint_sensor` 由 `false` 改为 `true`（h19 底包仍是 false）；
+   - 新增 `support_fod=true`（底包原本没有这一项）；`fod_solution=3` 原本已正确。
+
+构建脚本：`scripts/build_h19_fingerprint_features.sh`；刷写：`scripts/flash_product.sh`
+（`PART=product_a IMG=... `）。
+
+### 结果与仍未闭环的部分
+
+- 上述三项生效后，**设置里仍然没有指纹入口**（「面部与密码」页只有录入人脸/设置锁屏密码）。
+- 锁屏状态下直接启动 `com.android.settings/.Settings$FingerprintSettingsActivityV2`
+  抛 Binder 异常（未解锁，无法确认该 Activity 是否可正常打开），因此“入口被隐藏”
+  与“打开的上级页面不对”两种可能都还没排除。
+- `getprop vendor.fingerprint.cali` 当前为空。按 OS3 结论，录入会在 HAL 入口报
+  `invalid cali data` 秒拒，需要该属性为 `1`（参见上文 vendor 属性映射 + CIL 方案）。
+  这项在 h19 尚未做。
+- 待查方向：haotian 0.19 的 Settings 除特性/设备特性外还看哪些键
+  （`MiuiConfig` / `FeatureParser` 的 `support_fingerprint` 类键），以及解锁后
+  `FingerprintSettingsActivityV2` 能否直接打开。
+
+### 镜像哈希（便于回退/核对）
+
+- 当前已刷（含以上三项）：`product_fp.img` sha256 `97b5b86d16512cfdf1dd2720dc1489dd5f4c7dd449f44316e88a30efdc23742e`
+- 上一版（灵动岛 74px + padding14px，无指纹改动）：`product_island.img` sha256 `2de61de672934de7a2bd627812c3e3ab9229114c110d1a852a0ddf606d4b8aea`
+- 回退：`PART=product_a IMG=.../product_island.img scripts/flash_product.sh`
+
+### 运行时兜底（可选）
+
+`ksu-module/` 是同一组属性的 KernelSU 模块（`system.prop` + `post-fs-data.sh`
+显式 resetprop），用于在镜像未重刷时快速验证。镜像已带属性时可删除，
+两者值一致，不冲突。

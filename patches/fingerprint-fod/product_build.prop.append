@@ -1,0 +1,16 @@
+# HyperOS FOD 属性（追加到 /product/etc/build.prop）
+# 坐标依据：RMX5010 屏幕 1264x2780，UFF HAL 实测物理中心 (632,2146)
+#           => 图标左上角 (540,2054)，超声波触点矩形 (528,2030)-(736,2258)
+# 注意：写在 product 而非 odm。odm/build.prop 写 persist.vendor.* 会被
+#       vendor_init 按属性类型拒绝；product 侧的属性在更早阶段加载，实测生效。
+
+# FOD 图层/设置入口开关（Settings 与 MiuiSystemUI 都会读）
+ro.hardware.fp.fod=true
+ro.hardware.fp.fod.c=true
+
+# 超声波指纹厂商开关与几何
+persist.vendor.sys.fp.vendor=true
+persist.vendor.sys.fp.fod.location.X_Y=540,2054
+persist.vendor.sys.fp.fod.size.width_height=184,184
+persist.vendor.sys.fp.fod.us.target=528,2030,736,2258
+persist.vendor.sys.fp.fod.delay.fingerdown.ms=20

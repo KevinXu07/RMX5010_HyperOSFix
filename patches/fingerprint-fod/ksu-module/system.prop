@@ -1,0 +1,9 @@
+# HyperOS 指纹入口 + FOD 图层开关
+ro.hardware.fp.fod=true
+ro.hardware.fp.fod.c=true
+persist.vendor.sys.fp.vendor=true
+# RMX5010 物理传感器中心 (632,2146)，左上角 540,2054，184x184
+persist.vendor.sys.fp.fod.location.X_Y=540,2054
+persist.vendor.sys.fp.fod.size.width_height=184,184
+persist.vendor.sys.fp.fod.us.target=528,2030,736,2258
+persist.vendor.sys.fp.fod.delay.fingerdown.ms=20
