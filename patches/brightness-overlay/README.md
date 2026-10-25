@@ -100,3 +100,11 @@ h19 自带 DevicesOverlay.apk(SystemUI target,23.7MB)的 resources.arsc 做
 OMS 证书匹配看签名块内证书(原证书=匹配保持)。
 实机回读:cmd overlay lookup 三项全部命中(72px/14px/28.672974dip)✅。
 补丁脚本:haotian_work/build_island.py(arsc 解析/定位/补丁/重打包/拼块一体)。
+
+### 2026-10-25 微调:灵动岛 72→74px(用户实测后要求下移 2px)
+
+build_island.py 的 cut_out_center_y 常数 0x4800(72px)→0x4A00(74px),
+radix0 编码下常数即 px 值(72=0x4800/74=0x4A00/70=0x4600,每 2px 一档)。
+重建刷入,实机 overlay lookup 回读 74.0px ✅。签名说明:全程不签名,
+仅原样拼回原 APK 签名块(SystemUI target 的 OMS 证书匹配需要);
+System APK 本体(非 overlay)完全无需签名块。
