@@ -65,3 +65,15 @@ fastboot reboot
 ```
 
 不需要清数据。回滚：`_before_bright_overlay/images/product.img`。
+
+## 2026-10-25 曲线溯源结论:本文件 ≡ 原厂 16.0.7.201 主曲线
+
+将本载荷(11,871B)与 16.0.7.201 原厂 vendor 的 5 份 displayconfig 逐点对比:
+- 4 份 7,366B 变体:52 点、nits 0.2289~782.428、HBM(0.85/500/1.5)——与本文件
+  **数值逐点一致**(字节差异仅为注释/格式);
+- 1 份 2,674B:3 点粗化曲线(2/500/800),备用面板变体 fallback,精度更差。
+
+即本文件就是原厂曲线本体(经 OS3/nezha/haotian 三代实机验证),无需更换。
+haotian 底屏幕 uniqueId 实测仍为 local:4630947008615494291(硬件/DRM 上报,跨 ROM 稳定)。
+框架侧验证:dumpsys display 显示 mDdcAutoBrightnessAvailable=true、
+mBrightnessLevelsLuxMap 39 级 lux(2~30000)已进 ABC。
