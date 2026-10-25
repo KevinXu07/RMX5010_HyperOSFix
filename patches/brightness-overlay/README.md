@@ -108,3 +108,12 @@ radix0 编码下常数即 px 值(72=0x4800/74=0x4A00/70=0x4600,每 2px 一档)�
 重建刷入,实机 overlay lookup 回读 74.0px ✅。签名说明:全程不签名,
 仅原样拼回原 APK 签名块(SystemUI target 的 OMS 证书匹配需要);
 System APK 本体(非 overlay)完全无需签名块。
+
+## 载荷(haotian 主线 74px 终版)
+
+[DevicesOverlay-haotian-74px.apk](DevicesOverlay-haotian-74px.apk)(23,723,140B,
+SHA-256 前缀 c664aa1f—74px 版本)——可直接放入 product/overlay/ 替换同名文件,
+或用 [scripts/build_island_arsc_patch.py](../../scripts/build_island_arsc_patch.py)
+从任意 haotian 底的 DevicesOverlay.apk 重新生成(常数 0x4A00=74px 可调)。
+配套脚本:build_h19_autobrightness.sh(自动亮度)、build_h19_refresh.sh(刷新率)、
+build_h19_vendor_nfc.sh(NFC vendor 闭包)。
