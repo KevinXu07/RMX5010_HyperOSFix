@@ -56,16 +56,6 @@
      <bool name="support_screen_enhance_engine">true</bool>
      <integer name="aon_screen_off_fps">0</integer>
      ```
-   - **切断静止自动变暗发黄后门（对齐 15Pro 旗舰标准）**：
-     ```xml
-     <bool name="support_screen_paper_mode">false</bool>
-     <bool name="support_paper_eyecare">false</bool>
-     <float name="paper_eyecare_default_value">0.0</float>
-     <bool name="is_rhythmic_mode_v2_supported">false</bool>
-     <bool name="support_simplified_colormode">false</bool>
-     <bool name="is_compatible_paper_and_screen_effect">false</bool>
-     ```
-     彻底关闭了 MIUI 在静止变暗（`DIM`）时触发 `setScreenEffect(mode=2, value=2)` 强制挂载 91 档超高暖黄色温纸质护眼滤镜的逻辑。
 2. **`product/etc/displayconfig/display_id_4630947008615494291.xml`**：
    - 彻底删除 500ms 提前触发 idle 显示状态的 `<idleScreenRefreshRateTimeout>` 代码块。
 3. **`product/etc/build.prop`**：
@@ -102,7 +92,7 @@
 haotian OS4.0.0.19 底上迁移本项目(仅 product.img 层,LTPO 内核模块未迁移):
 - device_features/haotian.xml(非 nezha.xml):defaultFps 60→120、
   screen_resolution_supported 1440,1080→**1264,1080**(本机 1.5K 屏宽 1264)、
-  support_screen_paper_mode/support_paper_eyecare→false;
+  纸护眼门禁不动——15 Pro 底原生无变黄问题(该修复在 17U 底上实测无效,已废弃);
 - product build.prop:+dynamic_refresh_rate +persist.sys.miui_resolution=1264,2780,500;
 - 曲线文件删 idleScreenRefreshRateTimeout 块(本底 1 处)。
 实机:defaultFps=120、supportedRefreshRates [120,60,40,30,24,20]、Enforcing ✅。
