@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# 只刷 product 分区（fastbootd），严格遵守：枚举后等 5 秒再执行任何命令（含 getvar）
+# 只刷单个分区（fastbootd），严格遵守：枚举后等 5 秒再执行任何命令（含 getvar）
 #
-# 用法：PART=product_a IMG=/path/product_fp.img ./flash_product.sh
+# 用法：PART=product_a IMG=/path/product_fp.img ./flash_partition.sh
+#       PART=vendor_a  IMG=/path/vendor_fp.img  ./flash_partition.sh
 set -uo pipefail
 ADB="${ADB:-/d/AndroidSDK/platform-tools/adb.exe}"
 FB="${FB:-/d/AndroidSDK/platform-tools/fastboot.exe}"
@@ -43,4 +44,4 @@ for i in $(seq 1 180); do
 done
 "$ADB" $S shell 'pm list features | grep -i fingerprint'
 "$ADB" $S shell 'dumpsys biometric 2>&1 | head -8'
-echo FLASH_PRODUCT_DONE
+echo FLASH_PARTITION_DONE

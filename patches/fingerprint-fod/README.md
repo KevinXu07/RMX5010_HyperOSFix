@@ -211,6 +211,18 @@ oplus.fingerprint.           u:object_r:vendor_fingerprint_prop:s0
   （`MiuiConfig` / `FeatureParser` 的 `support_fingerprint` 类键），以及解锁后
   `FingerprintSettingsActivityV2` 能否直接打开。
 
+### 2026-10-26 追加：odm 指纹 HAL 替换
+
+- 新增 `bin/vendor.oplus.hardware.biometrics.fingerprint@2.1-service_uff`
+  （sha256 `2c0f5399c9f81a47d882903dc362d6654c44fa78f34f1d2500d9dc2e0e3582ba`，640200 B）。
+- 脚本 `scripts/build_odm_fp_hal.sh`：写入 odm stage 的 `/bin/hw/`，
+  chmod 0755、标签 `u:object_r:hal_fingerprint_oppo_exec:s0`（contexts 已有该路径），
+  重建 `odm.img` 并刷 `odm_a`。
+- 实刷后：HAL 进程 `vendor.oplus.hardware.biometrics.fingerprint@2.1-service_uff` 正常运行，
+  `dumpsys biometric` 指纹传感器 ID(1) modality 2 在线；设置入口/录入待回归。
+- 人脸录入卡进度环是独立问题（Settings 状态机），修复见
+  `docs/人脸录入卡住_根因与修复.md`。
+
 ### 镜像哈希（便于回退/核对）
 
 - 当前已刷（含以上三项）：`product_fp.img` sha256 `97b5b86d16512cfdf1dd2720dc1489dd5f4c7dd449f44316e88a30efdc23742e`
