@@ -113,3 +113,20 @@ secure_display_optim,wallet_fusion}=1` **运行时 getprop 不到**：
 **修复路径（未实施，NFC 基础功能不受影响）**：vendor sepolicy 追加
 `allow init vendor_nfc_mi_prop:property_service set;` + XMNfcNci 读取域授权，
 重建 vendor.img。是否必要取决于 Mi 钱包/碰一碰实测是否缺这些调优。
+
+### 2026-10-25 续:三条投递机制全部未生效(已归档,待 root 后定位)
+
+1. product build.prop 五项 → init 加载被拒(推断,avc 不可见)
+2. vendor sepolicy 追加 `(allow init vendor_nfc_mi_prop (property_service (set)))`
+   + `(file (read getattr map open))`(secilc 基线/修改双编译零差异,策略合法)→ 仍未生效
+3. 五项追加到 **/vendor/build.prop**(vendor_init 域对该 label 有 set)→ 仍未生效;
+   同文件前 39 条 factory `ro.vendor.*` 全部正常加载
+
+现象特征:无任何 avc 日志(auditd→logcat 管道在本 ROM 不送 property 拒绝,
+dmesg_restrict 挡住 shell),`setprop` 实测 "Failed to set property ... See dmesg"。
+无 root 时无法读 dmesg/pstore 定位真正拒绝点。
+
+**结论**:五项为 Mi 钱包/碰一碰调优,基础 NFC 功能不受影响,挂起。
+待任意 root 方案(KSU/Magisk patch boot)落地后:`dmesg | grep avc` 一条日志即可
+定位(预期是某个未授权 domain 的 property_service set,或 vendor build.prop
+加载路径的额外过滤),然后一行为 CIL。
