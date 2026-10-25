@@ -82,3 +82,16 @@ HyperOS 下必须去掉。
   删掉 high_pwm_rgb 后 `high_pwm_*` 两个传感器消失，依赖它们的 MIUI 组件
   （NetworkBoost.StatusManager、wifi MotionTracker、DeviceStaticStateDetectSensor）
   会订不到该传感器，均属无关紧要的后台遥测。
+
+---
+
+## 2026-10-25 补充(haotian 主线):h19 底重做,同一根因同修法
+
+donor 切 haotian OS4.0.0.19 后自动亮度再次失效(mLightSensor=null),odm 双处
+build.prop(/odm/build.prop + /odm/etc/build.prop)删 `high_pwm_rgb=true` 后
+type5 上线:`tcs3720 Oplus Ambient Light Sensor` 注册、mLightSensor 绑定 ✅。
+亮度曲线用本仓库已验证的 `display_id_4630947008615494291.xml`(屏幕 uniqueId
+跨 ROM 稳定,实测 local:4630947008615494291)放入 product/etc/displayconfig/。
+
+**教训(工具性)**:批量 sed 删 prop 时拼错关键字(oplus→opus)会静默零匹配——
+删完必须 grep -c 验证残留为 0 再继续(本次靠 getprop 复查发现 prop 仍在才暴露)。
