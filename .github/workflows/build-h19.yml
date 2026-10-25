@@ -1,0 +1,82 @@
+name: build-h19
+
+# RMX5010 haotian OS4.0.0.19 移植包构建
+#
+# 运行模式(二选一):
+#   A) self-hosted runner(推荐):在 WSL(Ubuntu, root)里注册 runner 并打上
+#      "wsl-rmx5010" 标签,payload 用本机固定路径,产物落 E:\code\modify。
+#      前提(本机已具备): erofs-utils / simg2img+img2simg / secilc /
+#      smali+baksmali(libsmali-java) / java / python3,以及两份 payload:
+#        /root/haotian/payload.bin            (haotian OS4.0.0.19 完整 OTA)
+#        /root/factory_1607/payload.bin       (RMX5010 16.0.7.201 完整 OTA)
+#      ——若无,设 inputs.payload_haotian_url / payload_factory_url 为直链,
+#        工作流会先下载(仅方案 B 或本机无缓存时)。
+#   B) 云端 runner(ubuntu-latest):把 PAYLOAD_URL_* 指向自己托管的分片直链;
+#      磁盘 14~30GB,需接受分阶段清理(脚本已按分区流式处理)。
+#
+# 产物:haotian_work/h19_package/ 下的整套刷写镜像 + sha256 清单。
+
+on:
+  workflow_dispatch:
+    inputs:
+      flash:
+        description: '构建完成后自动刷入本机(仅方案 A,手机需在 fastbootd)'
+        type: boolean
+        default: false
+      payload_haotian_url:
+        description: '可选:haotian payload.bin 直链(留空=用本机 /root/haotian/payload.bin)'
+        type: string
+        default: ''
+      payload_factory_url:
+        description: '可选:RMX5010 16.0.7.201 payload.bin 直链'
+        type: string
+        default: ''
+
+jobs:
+  build:
+    runs-on: ${{ (inputs.payload_haotian_url == '' && inputs.payload_factory_url == '') && 'self-hosted' || 'ubuntu-latest' }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 工具链自检(erofs-utils/simg2img/secilc/smali/java/python3)
+        run: |
+          set -e
+          for t in mkfs.erofs fsck.erofs img2simg simg2img secilc smali baksmali java python3; do
+            command -v $t >/dev/null || { echo "缺少 $t"; exit 1; }
+          done
+          echo "工具链 OK"
+
+      - name: payload 就位(方案 B:下载;方案 A:校验本机)
+        run: |
+          set -e
+          mkdir -p /root/haotian /root/factory_1607
+          if [ -n "${{ inputs.payload_haotian_url }}" ]; then
+            curl -L --retry 3 -o /root/haotian/payload.bin "${{ inputs.payload_haotian_url }}"
+          fi
+          if [ -n "${{ inputs.payload_factory_url }}" ]; then
+            curl -L --retry 3 -o /root/factory_1607/payload.bin "${{ inputs.payload_factory_url }}"
+          fi
+          [ -f /root/haotian/payload.bin ]       || { echo "缺 haotian payload"; exit 1; }
+          [ -f /root/factory_1607/payload.bin ] || { echo "缺 factory payload"; exit 1; }
+          ls -la /root/haotian/payload.bin /root/factory_1607/payload.bin
+
+      - name: 构建整套移植包(提取→system→product→odm→vendor→vbmeta→打包)
+        run: |
+          set -e
+          bash scripts/build_h19_full.sh
+
+      - name: 刷写(可选,fastbootd 刷 odm/vendor/system/system_ext/product + 重启)
+        if: ${{ inputs.flash }}
+        run: |
+          set -e
+          bash scripts/flash_h19_all.sh
+
+      - name: 上传产物清单与哈希
+        uses: actions/upload-artifact@v4
+        with:
+          name: h19-package-manifest
+          path: |
+            /root/haotian_work/h19_package/sha256_images.txt
+            /root/haotian_work/h19_package/BUILD_INFO.txt
+          if-no-files-found: error
