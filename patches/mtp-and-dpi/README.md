@@ -46,3 +46,15 @@ ro.miui.product.home=com.miui.home
 依据：该 prop 在整包里**没有被任何地方设置**（donor system/product/system_ext 与一加 my_product 都查过），
 而 MIUI 应用会读（`MISettings.vdex`、`MIUICloudBackup.vdex`、`Backup.vdex`、`MIUIContactsT.vdex`、
 `MIUSecurityCenter.vdex` 里都有该字符串）；桌面包名 = `com.miui.home`（`product/priv-app/MiuiHome`）。
+
+---
+
+## 2026-10-25 补充（haotian 主线）
+
+- **MTP**：init.usb.configfs.rc 同一份（sha 87ffc530…）直接复用，随 h19 system.img 刷入。
+- **DPI**：haotian 0.19 donor 的 product build.prop 默认是 **600**（非 480），
+  同样两项 `persist.miui.density_v2` / `ro.sf.lcd_density` 改 **500**，实机 wm density 500。
+- 注意 `persist.miui.density_v2` 是 userdata 覆盖型：若开机后 wm density 不是 500，
+  `adb shell wm density 500` 一次即可（镜像默认值是对的）。
+- 本目录 `product_build.prop` 是 nezha 时代的整合快照（含 ro.miui.product.home 与
+  当时的身份 prop），**不要**整文件覆盖到 haotian 底——haotian 主线只做上述最小改动。

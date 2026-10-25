@@ -115,3 +115,21 @@ secilc -m -M true -G -N -c 30 \
 3. 重新挂载新镜像，逐文件比对：标签 / 模式 / 属主 / 大小 / 内容哈希（忽略目录尺寸与符号链接权限位）
 4. `security.capability` 零丢失
 5. `sha256sum` 入清单，成品包 `verify_package.ps1 -Strict` 全绿
+
+## 8. 违例实例（2026-10-25 odm 身份切换卡第一屏）
+
+本规范不是理论——以下是**违反 §3 的完整事故链**，供后续接手者对照：
+
+1. 对 odm 重建时，file_contexts 生成脚本用 `os.getxattr()`（默认跟随软链）遍历基线；
+   基线里唯一一个**悬空软链**（`etc/vintf/manifest/network_manifest.xml` →
+   `//proc/oplusManifest/network_manifest`）读 xattr 必然 OSError → 被脚本跳过。
+2. 该软链实际自带 `security.selinux=vendor_configs_file`（inode xattr 计数=2）。
+   重建后它变成镜像内**唯一的 unlabeled inode**。
+3. 症状极具迷惑性：Enforcing 下开机卡死第一屏、adbd 不起；改哪些 build.prop 值、
+   换压缩参数、换 UUID 全部无效——因为与镜像内容无关。
+4. 定位手段：把重建镜像与已知可开机镜像 `simg2img` 后 **`cmp` 逐字节对比**，
+   全镜像只差 73 字节，其中 54 字节正是该软链 inode 的 xattr 区。
+5. 修复：contexts 生成对软链用 no-follow 读自身标签；重建后实测开机正常。
+
+推论：**任何"改 prop 没用/换参数没用"的镜像级故障，先做新旧镜像字节级 diff，
+把差异归零再谈其它假设。**

@@ -91,3 +91,25 @@ ro.vendor.nfc.phonecase=1
 | **底层 NXP HAL 识别** | `vendor.nxp.nxpnfc_aidl.INxpNfc/default`<br>`vendor.oplus.hardware.nfc.IOplusNfc/default` | ✅ 硬件通信正常（SN220 识别） |
 | **APK 包管理器状态** | `package:/system/app/XMNfcNci/XMNfcNci.apk` | ✅ 原生系统预置应用加载成功 |
 | **SELinux 安全状态** | `Enforcing` | ✅ 零 AVC 拦截崩溃 |
+
+---
+
+## 2026-10-25 补充（haotian 主线）：五项调优 prop 运行时未生效
+
+haotian OS4.0.0.19 底上重新注入 XMNfcNci（0.19 donor 自带包不含该应用，需从
+OS3 成品 system 提取，f680e8fa…/15,378,917 字节）。NFC 服务正常
+（`service check nfc` = found，`nfc.initialized=true`），开关/基础功能可用。
+
+但 product build.prop 追加的五项 `ro.vendor.nfc.{mitouch,phonecase,repair,
+secure_display_optim,wallet_fusion}=1` **运行时 getprop 不到**：
+
+- factory vendor 的 `vendor_property_contexts` 把 `ro.vendor.nfc.*` 标为
+  `vendor_nfc_mi_prop`，而 factory `vendor_sepolicy.cil` **没有** `allow init
+  vendor_nfc_mi_prop:property_service set`（ColorOS 自身不从这个 label 的
+  build.prop 路径设置属性）→ init 加载 product build.prop 的 set 被 Enforcing 拒绝。
+- nezha 主线当年是配合 OS3 时代 vendor sepolicy 补丁（含 init set 授权 + 读取域
+  授权）一起落地的；factory 底上单独加 prop 不生效。
+
+**修复路径（未实施，NFC 基础功能不受影响）**：vendor sepolicy 追加
+`allow init vendor_nfc_mi_prop:property_service set;` + XMNfcNci 读取域授权，
+重建 vendor.img。是否必要取决于 Mi 钱包/碰一碰实测是否缺这些调优。

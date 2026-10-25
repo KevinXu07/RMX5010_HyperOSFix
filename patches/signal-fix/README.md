@@ -78,3 +78,14 @@ adb shell 'dumpsys package com.qualcomm.qti.cne | head -5'                      
 `system/lib64/libaudiopolicymanagerdefault.so`（`strings` 5 处命中；haotian 时代那份是
 `libaudiopolicymanagerimpl.so`，本版无此库）。下一步：定位引用 `appname=` 的函数，把入口改成
 `ret`（ARM64 `c0 03 5f d6`），做法与 haotian 时代一致。
+
+---
+
+## 2026-10-25 补充（haotian 主线）：0.19 TeleService 重打
+
+donor 切到 haotian OS4.0.0.19 后，对 **0.19 自带 TeleService** 重新执行同一补丁
+（`build_teleservice_patch.sh` 流程，非移植旧 APK）：三处标记点
+（两个 `onInitVerInfo` 变体声明、`onHookDone` 的 `:try_end_1d/.catchall :catchall_48`
+标记）与 nezha 时代完全一致，补丁无适配成本。原 signing block 拼回手法不变
+（4 个 block id 校验一致）。随 h19 system.img 刷入，实机开机正常。
+CNE 防崩（病因 2）本轮**未**重打——需按同一方法对 0.19 的 CneApp 重做，待观察信号回归再定。
