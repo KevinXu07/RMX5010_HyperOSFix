@@ -48,6 +48,7 @@
 | 音频卡顿（appname 参数） | **haotian** | KSU `post-fs-data.sh` bind-mount 补丁库（8×`blr x8`→`nop`） | ✅ 原/补丁哈希、8 个调用点逐字节核对；目标哈希匹配 | ✅ audioserver/铃声预览通过；主观听感待回归 | [补丁说明](docs/音频卡顿_appname补丁.md) |
 | 抬起亮屏严格服从开关 | **haotian** | LSPosed `SettingsHooks` 暴露开关 + `SystemUiHooks` 只读设置 + ContentObserver | ✅ 开/关时 type 22 注册/注销，模块不写设置 | ✅ 实机 | [说明](docs/抬起亮屏_严格服从系统开关.md) |
 | Sense 配置前端 | — | 评估稿（尚未改 Sense） | — | — | [评估](docs/Sense配置前端评估.md) |
+| 未完成清单（2026-10-26） | — | 汇总待验证/未实现/不适用项 | — | — | [清单](docs/未完成清单.md) |
 | SELinux 闭包与 EROFS 重建规范 | — | — | ✅ | — | [规范](docs/SELinux闭包与EROFS重建规范.md) |
 | 分区血缘与刷写顺序 | — | ✅ | ✅（历史包） | [说明](docs/分区血缘与刷机顺序.md) |
 | 历史修复（状态栏/灵动岛/相机/信号/音频/NFC/亮度…） | system/product/odm + KSU 模块 | 部分 | 部分 | [状态矩阵](docs/修复清单与状态矩阵.md) |
