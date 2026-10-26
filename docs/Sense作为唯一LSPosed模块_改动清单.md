@@ -91,7 +91,7 @@ strings.xml                新增文案
 - 移除自动高亮补光（超声波指纹不需要）；
 - 移除物理按键映射（RMX 没有额外按键）；
 - 移除线性马达 `sys.haptic.*` 实验入口；
-- 恢复触控采样率 120/180/240/360 列表（需 KSU touchDaemon 配置补丁）；
+- 恢复触控采样率 120/180/240/360 滑条（需 KSU touchDaemon 配置补丁）；
 - 抬起唤醒开关直接读写系统 `pick_up_gesture_wakeup_mode`；
 - 曾尝试屏幕刷新率 120/60Hz，但只改 desired、activeMode 仍 120，已移除；
 - 新增性能调度预设（`powersave` / `schedutil` / `performance`）；

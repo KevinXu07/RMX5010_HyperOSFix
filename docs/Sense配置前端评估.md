@@ -167,7 +167,7 @@ Sense 的 `SenseXposedEntry` 同时调用
 
 - 触控报告率：显示驱动档位；touchDaemon 的两个 report_rate 配置开关由
   KSU 模块开机补丁启用。
-- 触控采样率：120/180/240/360Hz 列表。选择后写
+- 触控采样率：120/180/240/360Hz 滑条。选择后写
   `op13_fix_touch_sampling_rate`/`owner=module` 并立即写节点 182；
   `service.sh` 负责亮屏应用所选值、息屏写 120Hz。
 - 屏幕刷新率：曾加入 120/60Hz（`user_refresh_rate` + `miui_refresh_rate`），
