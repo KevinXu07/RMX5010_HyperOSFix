@@ -29,3 +29,12 @@ Thumbs.db
 # LSPosed 模块构建中间产物
 lsposed-src/build/
 *.idsig
+# IFAA probe build outputs
+tools/ifaaprobe/*.apk
+tools/ifaaprobe/aligned.apk
+tools/ifaaprobe/unsigned.apk
+tools/ifaaprobe/sources.txt
+tools/ifaaprobe/build/
+tools/ifaaprobe/classes/
+tools/ifaaprobe/dex/
+tools/ifaaprobe/gen/

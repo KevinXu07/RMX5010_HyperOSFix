@@ -28,6 +28,20 @@ public final class HookEntry implements IXposedHookLoadPackage {
             } catch (Throwable error) {
                 HookLog.error("finddevice hook installation failed", error);
             }
+        } else if ("org.ifaa.aidl.manager".equals(param.packageName)) {
+            HookLog.info("IFAA entry, installing fingerprint payment hooks");
+            try {
+                IfaaHooks.install(param.classLoader);
+            } catch (Throwable error) {
+                HookLog.error("IFAA hook installation failed", error);
+            }
+        } else if ("com.android.bluetooth".equals(param.packageName)) {
+            HookLog.info("Bluetooth entry, installing LHDC V5 bridge");
+            try {
+                BluetoothHooks.install(param.classLoader);
+            } catch (Throwable error) {
+                HookLog.error("Bluetooth LHDC hook installation failed", error);
+            }
         }
     }
 }

@@ -46,15 +46,21 @@ JAVA_HOME="$JH_W" "$BT/d8.bat" --release --min-api 35 --lib "$(win "$AJAR")" \
 
 echo "== [5] 组装 APK =="
 cp "$OUT/base.apk" "$OUT/unsigned.apk"
-python - "$OUT/unsigned.apk" "$OUT/dex/classes.dex" "$ROOT/assets/xposed_init" <<'PY'
+python - "$OUT/unsigned.apk" "$OUT/dex/classes.dex" "$ROOT/assets/xposed_init" "$ROOT" <<'PY'
 import sys, zipfile, shutil
-apk, dex, init = sys.argv[1:4]
+from pathlib import Path
+apk, dex, init, root = sys.argv[1:5]
+root = Path(root)
 tmp = apk + ".tmp"
 with zipfile.ZipFile(apk) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
     for item in zin.infolist():
         zout.writestr(item, zin.read(item.filename))
     zout.write(dex, "classes.dex")
     zout.write(init, "assets/xposed_init")
+    libs = root / "libs" / "arm64-v8a"
+    if libs.is_dir():
+        for lib in sorted(libs.glob("*.so")):
+            zout.write(lib, "lib/arm64-v8a/" + lib.name)
 shutil.move(tmp, apk)
 print("apk assembled")
 PY

@@ -12,6 +12,8 @@ import java.util.Map;
 final class ModuleConfig {
     static final String MORE_NOTIFICATION_SETTINGS =
             "op13_fix_more_notification_settings";
+    static final String IFAA_MODEL = "op13_fix_ifaa_model";
+    static final String HAPTIC_SCALE = "op13_fix_haptic_scale";
     static final String DOUBLE_TAP_WAKE = "op13_fix_double_tap_wake";
     static final String TOUCH_SAMPLING_RATE = "op13_fix_touch_sampling_rate";
     static final String GAME_TOUCH_ENABLED = "op13_fix_game_touch_enabled";

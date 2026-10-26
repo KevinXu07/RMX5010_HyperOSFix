@@ -15,6 +15,7 @@ public abstract class XC_MethodHook {
     protected void afterHookedMethod(MethodHookParam param) throws Throwable {}
 
     public static final class MethodHookParam {
+        public Member method;
         public Object thisObject;
         public Object[] args;
         public Object getResult() { return null; }

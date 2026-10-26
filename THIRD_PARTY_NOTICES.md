@@ -18,10 +18,22 @@ SELinux 策略片段。mtd 块由本项目从**本机已验证的 OS3 策略**�
 
 摘录自本项目工作区内的 OS3 阶段排障记录（自研），保留设备实测证据链。
 
-## 4. 参考项目（未取用代码）
+## 4. 参考项目与派生代码
 
-- [Maga-King/OP13HyperOSFix](https://github.com/Maga-King/OP13HyperOSFix)：一加 13 的澎湃移植 LSPosed 修复模块。本仓库**仅参考其仓库组织方式**（README 结构、`docs/`、`upstream/`、来源说明的写法），未复制其代码或资源。
-- 该项目的工程本体（若需要）请直接从上游获取；其包含 HyperCeiler 派生内容，遵循 AGPLv3。
+[Maga-King/OP13HyperOSFix](https://github.com/Maga-King/OP13HyperOSFix)：一加 13 的澎湃移植 LSPosed 修复模块。本仓库的组织方式（README 结构、`docs/`、`upstream/`、来源说明）参考该项目。
+
+以下内容是在其基础上派生/移植的，不是本仓库原创：
+
+- `lsposed-src/native/lhdc_patch.cpp`：LHDC V5 软件编码器桥接，来自该项目
+  `app/src/main/cpp/lhdc_patch.cpp`；仅修改 JNI 符号名、日志 tag、包名相关路径。
+- `lsposed-src/libs/arm64-v8a/liblhdcv5.so`、
+  `liblhdcv5BT_enc.so`：LHDC/Savitech 编码器二进制，来自该项目
+  `app/src/main/jniLibs/arm64-v8a/`，本仓库原样保留。
+- `IfaaHooks`、触感兼容层和 SELinux 处理思路参考了该项目的对应实现，
+  代码已按 RMX5010 的包名、AIDL 签名、HAL 域名和马达特性重写。
+
+该项目包含 HyperCeiler 派生内容，遵循 AGPLv3；上述派生文件的使用/再分发
+请同时遵守上游项目与 Savitech 的授权。该项目的完整工程请直接从上游获取。
 
 ## 5. 其它
 

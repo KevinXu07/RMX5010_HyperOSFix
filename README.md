@@ -40,6 +40,10 @@
 | 低共振触觉铃声（MiRemix.ogg 1.15MB 旗舰声学对齐） | nezha | product 重建（高品质低共振音频载荷替换） | ✅ 文件与 SHA256 核对 | ✅（nezha 主线） | [补丁](patches/haptic-ringtone/README.md) |
 | 双击亮屏（AOD LPWG + F4 唤醒） | **haotian** | KSU 模块 `service.sh`（触摸 HAL 写 node1=1 / node21=2） + LSPosed F4 钩子（HBP 一次双击一个 F4，单 F4 直接唤醒） | ✅ 冷启动 / touchDaemon 重启自动重发 | ✅ 实机（`low power gesture mode enabled`，注入单 F4 从 Dozing → Awake） | [文档](docs/双击亮屏_LPWG根因与修复.md) |
 | 超级小爱语音识别（ASR） | **haotian** | LSPosed `com.xiaomi.finddevice` NoTZ 凭证委托 + KSU 通用 `acc_udevid` | ✅ 账号 uDevId / MiTalk / fid+sig+ts 签名链路 | ⏳ Aliyun（主）/ Volc（回退）均 `40002 Device deny`（设备/账号授权，非本地凭证） | [根因](docs/超级小爱语音识别_根因与修复.md) / [鉴权逆向](docs/超级小爱鉴权逆向_读取清单.md) |
+| IFAA / 支付宝指纹支付 | **haotian** | LSPosed `IfaaHooks` + system_server 权限放行 + KSU SELinux live patch | ✅ T1=17 / T3 / T4→Oplus HAL / 支付宝登录期真实 processCmd | ⏳ 当前 0 枚指纹且支付宝要求新设备验证，最终扣款待用户 | [实现与验证](docs/IFAA指纹支付_RMX5010实现与验证.md) |
+| 触感兼容 / 强度校准 | **haotian** | LSPosed `HapticHooks`（私有效果映射、VibratorInfo 扩展、`VibrationScaler` 系数） | ✅ map/info/scale hook 加载；0.7 实测振幅 0.70 | ✅ 实机（最终 0.8；波形细调待手感） | [适配记录](docs/触感_采样率_LHDC_RMX适配.md) |
+| 触控采样率（节点 182） | **haotian** | KSU `touch_rate.sh` / `action.sh` / `service.sh` | ✅ 120Hz 写入；360→息屏70→亮屏360 | ✅ 实机日志（实际报告率待物理滑动确认） | [适配记录](docs/触感_采样率_LHDC_RMX适配.md) |
+| LHDC V5 编码器桥接 | **haotian** | LSPosed `com.android.bluetooth` + NDK 编译 helper + Savitech 编码库 | ✅ `status=7`、接口安装成功、蓝牙稳定 | ⏳ 未配对 LHDC 耳机做端到端试听 | [适配记录](docs/触感_采样率_LHDC_RMX适配.md) |
 | SELinux 闭包与 EROFS 重建规范 | — | — | ✅ | — | [规范](docs/SELinux闭包与EROFS重建规范.md) |
 | 分区血缘与刷写顺序 | — | ✅ | ✅（历史包） | [说明](docs/分区血缘与刷机顺序.md) |
 | 历史修复（状态栏/灵动岛/相机/信号/音频/NFC/亮度…） | system/product/odm + KSU 模块 | 部分 | 部分 | [状态矩阵](docs/修复清单与状态矩阵.md) |

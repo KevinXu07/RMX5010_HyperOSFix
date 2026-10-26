@@ -50,6 +50,31 @@ while [ $i -lt 180 ]; do
 done
 [ "$applied" = 1 ] || log "gesture apply timed out"
 
+# ---- configurable touch report rate ----
+# Node 182 (/proc/touchpanel/report_rate) is written through the Oplus touch
+# HAL. The setting is optional; when unset the Realme firmware default is kept.
+. "$MODDIR/touch_rate.sh"
+(
+  last_on=
+  while true; do
+    brightness=$(cat /sys/class/backlight/panel0-backlight/brightness 2>/dev/null)
+    if [ -n "$brightness" ] && [ "$brightness" -gt 0 ]; then
+      on=1
+    else
+      on=0
+    fi
+    if [ "$on" != "$last_on" ]; then
+      if [ "$on" = 1 ]; then
+        apply_touch_rate
+      else
+        apply_touch_rate_off
+      fi
+      last_on=$on
+    fi
+    sleep 5
+  done
+) >> "$LOG" 2>&1 &
+
 # ---- generic acc_udevid (Xiaomi account uDevId) ----
 # acc_udevid = "ud:" + b64url(sha1(account + fid))[:16], fid from the
 # FindDevice software credential. Runs after user unlock (CE DB appears)
@@ -65,6 +90,63 @@ done
       esac
     fi
     sleep 60
+  done
+) >> "$LOG" 2>&1 &
+
+# ---- IFAA / Alipay fingerprint payment: SELinux live patch ----
+# IFAA runs in a versioned platform_app domain (platform_app_36 on this base)
+# and the Oplus IFingerprintPay HAL only accepts hal_fingerprintpay_client.
+# The live patch is lost on reboot; the marker lives in /dev (tmpfs) so a
+# reboot always reapplies it. Re-check whenever the IFAA process (re)starts.
+IFAA_DOMAIN_MARK=/dev/ifaa_policy_domains
+
+ifaa_domain() {
+  domain=$(ps -AZ 2>/dev/null \
+    | awk '$NF == "org.ifaa.aidl.manager" { split($1,a,":"); print a[3]; exit }')
+  [ -n "$domain" ] && { echo "$domain"; return; }
+
+  target=$(dumpsys package org.ifaa.aidl.manager 2>/dev/null \
+    | grep -o 'targetSdk=[0-9][0-9]*' | head -n 1 | cut -d= -f2)
+  sdk=$(getprop ro.build.version.sdk 2>/dev/null)
+  [ -n "$sdk" ] || sdk=37
+  if [ -n "$target" ] && [ "$target" -ge "$sdk" ]; then
+    echo platform_app
+  else
+    echo "platform_app_$((sdk - 1))"
+  fi
+}
+
+apply_ifaa_policy() {
+  domain=$(ifaa_domain)
+  case "$domain" in
+    platform_app|platform_app_[0-9]*|system_app|system_app_[0-9]*) ;;
+    *) log "ifaa policy skipped: domain=$domain"; return ;;
+  esac
+  grep -qx "$domain" "$IFAA_DOMAIN_MARK" 2>/dev/null && return
+  rule="typeattribute $domain hal_fingerprintpay_client"
+  if [ -x /data/adb/ksu/bin/ksud ] \
+     && /data/adb/ksu/bin/ksud sepolicy check "$rule" >/dev/null 2>&1 \
+     && /data/adb/ksu/bin/ksud sepolicy patch "$rule" >/dev/null 2>&1; then
+    echo "$domain" >> "$IFAA_DOMAIN_MARK"
+    log "ifaa policy patched: $rule"
+  else
+    log "ifaa policy failed: $rule"
+  fi
+}
+apply_ifaa_policy
+(
+  last_domain=
+  while true; do
+    if pidof org.ifaa.aidl.manager >/dev/null 2>&1; then
+      domain=$(ifaa_domain)
+      if [ -n "$domain" ] && [ "$domain" != "$last_domain" ]; then
+        apply_ifaa_policy
+        last_domain="$domain"
+      fi
+    else
+      last_domain=
+    fi
+    sleep 30
   done
 ) >> "$LOG" 2>&1 &
 

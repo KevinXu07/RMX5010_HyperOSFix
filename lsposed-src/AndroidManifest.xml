@@ -8,6 +8,7 @@
 
     <application
         android:allowBackup="false"
+        android:extractNativeLibs="true"
         android:label="RMX5010 HyperOS Fix"
         android:description="@string/module_description">
         <meta-data android:name="xposedmodule" android:value="true" />

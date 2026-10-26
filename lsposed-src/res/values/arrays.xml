@@ -3,5 +3,8 @@
     <string-array name="xposed_scope">
         <item>android</item>
         <item>com.android.systemui</item>
+        <item>com.android.bluetooth</item>
+        <item>org.ifaa.aidl.manager</item>
+        <item>com.xiaomi.finddevice</item>
     </string-array>
 </resources>

@@ -3,6 +3,17 @@
 *.cil text eol=lf
 *.tsv text eol=lf
 *.append text eol=lf
+# Device scripts and sources must stay LF: a CRLF shebang makes KernelSU skip
+# service.sh, and the module is built on a Windows host.
+*.java text eol=lf
+*.c text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.xml text eol=lf
+*.md text eol=lf
+*.prop text eol=lf
+*.rc text eol=lf
+*.rule text eol=lf
 # 二进制载荷：不要做行尾/编码转换
 *.so binary
 *.bin binary

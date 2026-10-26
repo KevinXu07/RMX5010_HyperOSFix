@@ -6,7 +6,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import de.robv.android.xposed.XposedBridge;
 
 final class HookLog {
-    private static final String TAG = "OP13HyperOSFix";
+    private static final String TAG = "RMX5010HyperOSFix";
     private static final Set<String> ONCE = ConcurrentHashMap.newKeySet();
 
     private HookLog() {
