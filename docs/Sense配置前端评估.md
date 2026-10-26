@@ -26,6 +26,11 @@ Root       RootUtils：持久 `su` shell + 结束标记 + 超时/重试
   VibrationManager
 ```
 
+2026-10-27 清理后，Service 只保留 `DisplayColorModeManager`（刷新率）、
+`AodBrightnessManager`、`CpuGovernorManager`；`FingerprintFixManager`、
+`LiftToWakeManager`、`ShortcutKeyManager`、`VibrationManager`、
+`TouchEnhanceManager` 已不再启动（类文件保留但未使用）。
+
 Sense 已经具备“配置 + Root 执行 + 日志 + 开机恢复”的完整骨架，缺的只是把
 RMX5010 移植模块的几个设置接进来。
 
@@ -157,25 +162,54 @@ Sense 的 `SenseXposedEntry` 同时调用
 `nativeLibraryDir` 加载 `libop13_lhdc_patch.so`，同时保留旧包名回退；
 `packaging.jniLibs.useLegacyPackaging=true` 保证 .so 被解压到 nativeLibraryDir。
 
-### 6.2 Sense“移植修复”页
+### 6.2 Sense 页面（2026-10-27 清理后）
+
+“系统增强”：
+
+- 触控报告率：只读诊断。RMX 驱动未暴露 `/proc/touchpanel/report_rate`，
+  `touchHidlTest -c wo 0 182` 返回 0 但 `main_register` 档位不变，因此不提供
+  可调滑条；页面直接显示“动态采样率不可用，当前自动档位”。
+- 屏幕刷新率：120Hz / 60Hz，写 `Settings.Secure.user_refresh_rate`。
+  实测 `mDesiredDisplayModeSpecs` 的 render 从 120.0 变为 60.0。
+- 息屏显示亮度：保留原有 AOD 亮度开关。
+- 性能调度：省电/均衡/性能，映射到 CPU governor
+  `powersave` / `schedutil` / `performance`，写入所有 policy 并持久化。
+  一加 13 的完整 `op13_scene_sched` 需要专用内核模块，RMX 没有该模块，
+  因此只接 CPU governor 预设。
+- 游戏自动加速：保留按应用切换；游戏时把 CPU governor 设为 performance，
+  不再包含触控采样率调节。
+
+“交互体验”：
+
+- 抬起唤醒：开关直接读写系统 `pick_up_gesture_wakeup_mode`，不再使用 Sense
+  自己的加速度计路径；系统开关关闭时整个路径关闭。灵敏度/传感器刷新率
+  因系统没有对应设置已从 UI 移除。
+
+“移植修复”：
 
 - 模块状态：KSU 版本、LSP 激活、触控/触感、钱包/刷卡权限、音频补丁、IFAA。
-- 触感强度：0.3–1.2，写 `op13_fix_haptic_scale`。
+- 触感强度：0.3–1.2，写 `op13_fix_haptic_scale`；`HapticHooks` 在系数上
+  额外应用 1.35 次幂曲线，让等距滑条更接近等强度的主观手感。
 - IFAA 型号：写 `op13_fix_ifaa_model`，并重启 IFAA 进程。
 - 测试锁屏刷卡页：重新授权 AppOp 10020 后启动 `NfcConsumeActivity`。
 - 重新应用模块配置：调用 KSU `ctl.sh reapply` 并刷新状态。
 
+已从 UI/服务移除：
+
+- 自动高亮补光（RMX 是超声波指纹，不需要 AOD 补光）；
+- 物理按键映射（RMX 没有额外的可映射按键）；
+- 线性马达 `sys.haptic.*` 实验入口（与模块强度系数冲突）；
+- 日常/游戏触控采样率滑条（驱动不支持）。
+
 ### 6.3 冲突处理
 
-- **触控**：Sense 的 `TouchEnhanceManager` 在应用采样率时写
-  `op13_fix_touch_owner=sense` 并镜像 `op13_fix_touch_sampling_rate`；
-  KSU `touch_rate.sh` 看到 owner=sense 就不再写节点。手动 KernelSU action
-  会把 owner 改回 module。
-- **抬起亮屏**：`LiftToWakeManager` 读取
-  `pick_up_gesture_wakeup_mode`，用 ContentObserver 跟随系统开关；
-  系统关闭时立即注销传感器。
-- **触感**：Sense 原有的 `sys.haptic.*` 保留为实验性入口，默认关闭，
-  文案提示与模块 `op13_fix_haptic_scale` 二选一。
+- **触控**：Sense 已移除 `TouchEnhanceManager` 的直接节点写入；KSU
+  `touch_rate.sh` 在 `/proc/touchpanel/report_rate` 不存在时直接跳过。
+  两边都不会再把“HAL 返回 0”当成实际生效。
+- **抬起亮屏**：Sense 开关只写系统设置；系统传感器与 LSP
+  `SystemUiHooks` 的开关门控负责实际唤醒，不再有独立加速度计路径。
+- **触感**：只保留模块 `op13_fix_haptic_scale`；Sense 原生 `sys.haptic.*`
+  入口已移除。
 
 ### 6.4 实机验证
 
@@ -189,6 +223,18 @@ Sense 的 `SenseXposedEntry` 同时调用
   没有 `PermissionDenied`/`QAWalletSClient`。
 - 旧模块 `local.mio.gt7profodfix` 和 `local.mio.coloroswalletcompat`
   已卸载，避免重复 hook。
+- 触控诊断：`/proc/touchpanel/report_rate` 不存在；`touchHidlTest` 写
+  `1/2/3/120/240`（wo/ws/wb）后 `main_register` 仍为
+  `report rate(...): 0`，确认动态采样率不可用。
+- 屏幕刷新率：选择 60Hz 后 `settings get secure user_refresh_rate=60`，
+  `mDesiredDisplayModeSpecs` render 从 120.0 变为 60.0；恢复 120 正常。
+- 性能调度：选省电后两个 policy 的 governor 都是 `powersave`；选均衡后
+  都是 `schedutil`；持久化由 SenseService 应用。
+- 抬起唤醒：开关打开/关闭分别把 `pick_up_gesture_wakeup_mode` 写成 1/0。
+- 触感：`haptic_scale=0.8` 时 LSPosed 日志为
+  `haptic feedback scale=0.7398974`（1.35 次幂曲线），UI“测试触感”可播放短振动。
+- Sense 使用 release 构建并签名（非 debuggable），不再出现“可调试应用”
+  的 16 KB 兼容性警告；LSPosed 仍能正常加载。
 
 ### 6.5 回滚
 

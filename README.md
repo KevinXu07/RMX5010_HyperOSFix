@@ -42,12 +42,13 @@
 | 超级小爱语音识别（ASR） | **haotian** | LSPosed `com.xiaomi.finddevice` NoTZ 凭证委托 + KSU 通用 `acc_udevid` | ✅ 账号 uDevId / MiTalk / fid+sig+ts 签名链路 | ⏳ Aliyun（主）/ Volc（回退）均 `40002 Device deny`（设备/账号授权，非本地凭证） | [根因](docs/超级小爱语音识别_根因与修复.md) / [鉴权逆向](docs/超级小爱鉴权逆向_读取清单.md) |
 | IFAA / 支付宝指纹支付 | **haotian** | LSPosed `IfaaHooks` + system_server 权限放行 + KSU SELinux live patch | ✅ T1=17 / T3 / T4→Oplus HAL / 支付宝登录期真实 processCmd | ⏳ 当前 0 枚指纹且支付宝要求新设备验证，最终扣款待用户 | [实现与验证](docs/IFAA指纹支付_RMX5010实现与验证.md) |
 | 触感兼容 / 强度校准 | **haotian** | LSPosed `HapticHooks`（私有效果映射、VibratorInfo 扩展、`VibrationScaler` 系数） | ✅ map/info/scale hook 加载；0.7 实测振幅 0.70 | ✅ 实机（最终 0.8；波形细调待手感） | [适配记录](docs/触感_采样率_LHDC_RMX适配.md) |
-| 触控采样率（节点 182） | **haotian** | KSU `touch_rate.sh` / `action.sh` / `service.sh` | ✅ 120Hz 写入；360→息屏70→亮屏360 | ✅ 实机日志（实际报告率待物理滑动确认） | [适配记录](docs/触感_采样率_LHDC_RMX适配.md) |
+| 触控采样率（节点 182） | **haotian** | KSU `touch_rate.sh` / `action.sh` / `service.sh` | ❌ 节点表有 182，但驱动未创建 `/proc/touchpanel/report_rate`；HAL 返回 0、`main_register` 档位不变 | ❌ 实机确认不可调；Sense 改为只读诊断 | [适配记录](docs/触感_采样率_LHDC_RMX适配.md) |
 | LHDC V5 编码器桥接 | **haotian** | Sense 内 `com.android.bluetooth` hook + NDK helper + `jniLibs/arm64-v8a` 三个 Savitech 库 | ✅ `status=7`、接口安装成功、蓝牙稳定 | ⏳ 未配对 LHDC 耳机做端到端试听 | [适配记录](docs/触感_采样率_LHDC_RMX适配.md) |
 | MiCharge / 手机管家电池时间 | **haotian** | LSPosed `MiCharge*` + `SecurityCenterTimeHooks`，scope SecurityCenter/Manager | ✅ 框架桥/W MAX 安装；电池页 0→36 时 36 分 | ⏳ 充电中预计充满/小数/W MAX 待插充电器 | [适配记录](docs/MiCharge与电池时间_RMX适配.md) |
 | 音频卡顿（appname 参数） | **haotian** | KSU `post-fs-data.sh` bind-mount 补丁库（8×`blr x8`→`nop`） | ✅ 原/补丁哈希、8 个调用点逐字节核对；目标哈希匹配 | ✅ audioserver/铃声预览通过；主观听感待回归 | [补丁说明](docs/音频卡顿_appname补丁.md) |
 | 抬起亮屏严格服从开关 | **haotian** | LSPosed `SettingsHooks` 暴露开关 + `SystemUiHooks` 只读设置 + ContentObserver | ✅ 开/关时 type 22 注册/注销，模块不写设置 | ✅ 实机 | [说明](docs/抬起亮屏_严格服从系统开关.md) |
 | Sense 配置前端 / 唯一 LSPosed 模块 | **haotian** | `com.zephiel.sense`（Compose UI + `SenseXposedEntry` + 主 hooks + 钱包 hooks + `oplus-fwk.jar`） | ✅ 合并源码后 Gradle 构建通过；KSU `ctl.sh` 状态读取正常 | ✅ 实机（SukiSU 授权、LSPosed 各进程加载、锁屏/解锁刷卡页、配置页状态） | [评估与落地](docs/Sense配置前端评估.md) |
+| Sense 屏幕刷新率 / 性能调度 | **haotian** | Sense 写 `user_refresh_rate`；CPU governor `powersave`/`schedutil`/`performance` 预设 | ✅ `mDesiredDisplayModeSpecs` 120→60；两簇 governor 切换实测 | ✅ 实机 | [评估与落地](docs/Sense配置前端评估.md) |
 | 模块合并形态 | **haotian** | 一个 KSU 模块（`rmx5010_fod_bridge` 1.1.0）+ Sense 作为唯一 LSPosed 模块 | ✅ `build_sense_module.sh` / `register_sense_lsposed.sh` / `ctl.sh` | ✅ 实机 | [说明](docs/Sense配置前端评估.md) |
 | 未完成清单（2026-10-27） | — | 汇总待验证/未实现/不适用项 | — | — | [清单](docs/未完成清单.md) |
 | ColorOS 钱包（FinShell/TAS/HTMS/UPTsm/eID） | **haotian** | 五个钱包 APK（用户态）+ Sense 内钱包 hooks + LSPosed scope | ✅ FinShell 首页、默认钱包、WALLET 角色、eSE C0 路由；HTMS 必需 | ⏳ 登录/实名/发卡/实际交易、系统 App 特权 | [移植记录](docs/ColorOS钱包_RMX5010移植.md) |

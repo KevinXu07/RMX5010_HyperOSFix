@@ -10,6 +10,12 @@ log() {
 
 . "$MODDIR/touch_rate.sh"
 
+if [ ! -e "$TOUCH_RATE_NODE_FILE" ]; then
+  echo "touch report_rate is not exposed by this touch driver; dynamic rate unsupported"
+  log "action: report_rate node absent"
+  exit 0
+fi
+
 # A manual KernelSU action takes ownership back from Sense; Sense will take
 # it again the next time its TouchEnhanceManager applies a rate.
 settings put global "$TOUCH_OWNER_KEY" module

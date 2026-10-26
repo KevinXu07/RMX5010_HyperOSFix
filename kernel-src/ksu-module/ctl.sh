@@ -63,6 +63,8 @@ print_status() {
   echo "boot_time=$(date '+%Y-%m-%d %H:%M:%S')"
   echo "touch_rate=$(get_global "$TOUCH_RATE_KEY" 120)"
   echo "touch_owner=$(get_global "$TOUCH_OWNER_KEY" module)"
+  echo "touch_supported=$([ -e /proc/touchpanel/report_rate ] && echo 1 || echo 0)"
+  echo "touch_driver=$(grep 'report rate' /proc/touchpanel/debug_info/main_register 2>/dev/null | sed 's/.*: //')"
   echo "haptic_scale=$(get_global "$HAPTIC_SCALE_KEY" 1.0)"
   echo "ifaa_model=$(get_global "$IFAA_MODEL_KEY" ONEPLUS-R23821)"
   echo "ifaa_domain=$(ifaa_domain)"

@@ -80,34 +80,46 @@ LHDC 代码按绝对路径从 `ApplicationInfo.nativeLibraryDir` 加载
 ### 2.4 UI / 配置
 
 ```text
-SettingsActivity.kt        “移植修复”分组
-SettingsViewModel.kt       状态、触感、IFAA、钱包测试、重新应用
+SettingsActivity.kt        系统增强 + 移植修复 + 交互体验
+SettingsViewModel.kt       状态、触感、IFAA、钱包测试、刷新率、调度
 ModuleControlManager.java  KSU ctl.sh / Settings.Global 契约
 strings.xml                新增文案
 ```
 
+2026-10-27 清理/新增：
+
+- 移除自动高亮补光（超声波指纹不需要）；
+- 移除物理按键映射（RMX 没有额外按键）；
+- 移除线性马达 `sys.haptic.*` 实验入口；
+- 移除日常/游戏触控采样率滑条，改为只读诊断；
+- 抬起唤醒开关直接读写系统 `pick_up_gesture_wakeup_mode`；
+- 新增屏幕刷新率 120/60Hz（`user_refresh_rate`）；
+- 新增性能调度预设（`powersave` / `schedutil` / `performance`）；
+- 新增“测试触感”按钮和 1.35 次幂触感曲线。
+
 写入的模块键：
 
 ```text
-op13_fix_touch_sampling_rate
-op13_fix_touch_owner
 op13_fix_haptic_scale
 op13_fix_ifaa_model
 ```
 
-### 2.5 冲突修复
+### 2.5 冲突/限制
 
-- `TouchEnhanceManager`：应用采样率时写 `op13_fix_touch_owner=sense`，
-  KSU `touch_rate.sh` 检测到后不再写节点。
-- `LiftToWakeManager`：读 `pick_up_gesture_wakeup_mode`，系统开关关闭时
-  注销加速度计监听。
-- `VibrationManager`：保留为实验性入口，默认关闭；新增模块触感强度滑条。
+- `TouchEnhanceManager` 已不再启动；RMX 驱动没有
+  `/proc/touchpanel/report_rate`，KSU `touch_rate.sh` 检测到后跳过，
+  不再把 HAL 返回 0 当成实际生效。
+- `LiftToWakeManager` 已不再启动；系统开关 + LSP `SystemUiHooks` 负责实际
+  抬起唤醒。
+- `VibrationManager` 已不再启动；只保留模块触感强度。
+- 一加 13 的 `op13_scene_sched` 内核模块在 RMX 上不存在，完整场景调度/
+  FAS/线程放置没有移植；Sense 只提供 CPU governor 预设。
 
 ## 3. 构建与安装
 
 ```bash
 cd RMX5010_HyperOSFix
-./scripts/build_sense_module.sh
+./scripts/build_sense_module.sh       # release, 非 debuggable，默认用 debug keystore 签名
 ./scripts/register_sense_lsposed.sh
 adb install -r out/Sense-RMX5010.apk
 adb reboot

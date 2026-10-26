@@ -9,6 +9,7 @@
 TOUCH_RATE_KEY=op13_fix_touch_sampling_rate
 TOUCH_OWNER_KEY=op13_fix_touch_owner
 TOUCH_RATE_NODE=182
+TOUCH_RATE_NODE_FILE=/proc/touchpanel/report_rate
 TOUCH_HIDL=/odm/bin/touchHidlTest
 
 touch_owner_value() {
@@ -24,6 +25,10 @@ touch_rate_value() {
   # the effective rate into TOUCH_RATE_KEY, so the module must not also write
   # the node on screen transitions.
   [ "$(touch_owner_value)" = "sense" ] && return 1
+  # RMX5010's Synaptics driver does not expose report_rate; the HIDL node 182
+  # accepts the call but the driver keeps its automatic rate. Do not report a
+  # write as applied when the proc node is absent.
+  [ -e "$TOUCH_RATE_NODE_FILE" ] || return 1
   value=$(settings get global "$TOUCH_RATE_KEY" 2>/dev/null)
   case "$value" in
     70|120|180|240|360) echo "$value"; return 0 ;;

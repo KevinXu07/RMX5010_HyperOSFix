@@ -6,7 +6,7 @@
 |---|---|
 | 触感私有效果映射 + 支持列表扩展 | ✅ 实机加载（map=1/info=1） |
 | RMX 触感强度系数 | ✅ 实测 0.7 生效（scale=0.70，Step 振幅 0.70） |
-| 触控采样率节点 182 + 亮灭屏切换 | ✅ 实机日志验证（360→息屏 70→亮屏 360） |
+| 触控采样率节点 182 + 亮灭屏切换 | ❌ 实机确认驱动未暴露 `report_rate`；HAL 调用返回 0 但速率不变 |
 | LHDC V5 软件编码器桥接 | ✅ 实机安装成功（status=7），⏳ 未接 LHDC 耳机试听 |
 
 ## 1. 触感
@@ -73,6 +73,20 @@ RMX5010HyperOSFix: haptic feedback scale=0.7
 设备最终采用 **0.8** 作为起点；这是针对 RMX LRA 的保守校准，用户可以随时
 改回 1.0 或调到 0.6。
 
+2026-10-27 手感调整：LRA 的振幅响应不是线性的，等距滑条在中低段变化偏弱。
+`HapticHooks.feedbackScale()` 现在在用户值上应用 1.35 次幂曲线：
+
+```text
+factor = clamp(pow(slider, 1.35), 0.2, 1.2)
+slider 0.8 -> factor 0.74
+slider 1.0 -> factor 1.00
+slider 1.2 -> factor 1.20
+```
+
+滑条仍显示 0.3–1.2 的用户值，底层只把这个曲线后的系数交给
+`VibrationScaler`；1.0 不变，两端仍在 0.2–1.2 的测试范围内。曲线是否更线性
+需要实际手感确认；如果要回退，把指数改回 1.0 即可。
+
 ### 1.5 仍未做的部分
 
 - MIUI_SDK 的 75 ms 键盘 Step 本身还没有按 RMX 马达缩短。要改波形需要在
@@ -84,57 +98,56 @@ RMX5010HyperOSFix: haptic feedback scale=0.7
 
 ## 2. 触控采样率
 
-### 2.1 接口确认
+### 2.1 节点存在性
 
-RMX 的 `touchHidlTest` 节点表：
+`touchHidlTest` 的节点表里确实有：
 
 ```text
 HBP node:[182] path:/proc/touchpanel/report_rate
 ```
 
-与 OP13 使用的节点号完全一致。写入方式：
-
-```bash
-/odm/bin/touchHidlTest -c wo 0 182 <70|120|180|240|360>
-```
-
-`wo` 走 `vendor.oplus.hardware.touch.IOplusTouch` AIDL；`rc=0` 表示 HAL 接受。
-`/proc/touchpanel/report_rate` 不是普通可读文件，读值需要通过实际触控事件
-统计，因此当前以 HAL 写入返回值和亮灭屏行为作为验证依据。
-
-### 2.2 实现
-
-- `kernel-src/ksu-module/touch_rate.sh`：读取设置键，写节点 182；
-- `kernel-src/ksu-module/action.sh`：KernelSU 模块动作，点击一次循环
-  `70 → 120 → 180 → 240 → 360 → 70`，立即写入并打印当前档位；
-- `service.sh`：开机 source `touch_rate.sh`，每 5 秒看
-  `/sys/class/backlight/panel0-backlight/brightness`，亮屏应用所选档位，
-  息屏时对 180/240/360 写 70 Hz（120 及以下保持）；
-- 设置键：
-
-```bash
-adb shell settings put global op13_fix_touch_sampling_rate 120
-```
-
-最终设备默认：**120 Hz**（保守，接近 OP13 默认；需要时可点 KSU 模块动作切到
-240/360）。
-
-### 2.3 实测
+但 RMX5010 的 Synaptics 驱动**没有创建这个 proc 节点**：
 
 ```text
-touch rate applied: 120 Hz
-settings put global op13_fix_touch_sampling_rate 360
-touch rate screen off: 70 Hz
-touch rate applied: 360 Hz     # 亮屏
+/proc/touchpanel/report_rate: No such file or directory
+/proc/touchpanel/report_rate_white_list: No such file or directory
+/proc/touchpanel/game_mode: No such file or directory
+/proc/touchpanel/high_frame_enable: No such file or directory
 ```
 
-KSU action 实测：
+驱动只在 `debug_info/main_register` 里打印固定映射：
 
 ```text
-action: touch rate unset -> 120
-action: touch rate 120 -> 180
-action: touch rate 180 -> 240
+report rate(1:120HZ,2:240HZ,3:180HZ): 0
 ```
+
+### 2.2 写入测试结果
+
+以下方式都试过，HAL/工具都返回 0，但 `main_register` 的档位始终是 0：
+
+```text
+touchHidlTest -c wo 0 182 1 / 2 / 3 / 120 / 240
+touchHidlTest -c ws 0 182 1 / 2 / 3
+touchHidlTest -c wb 0 182 1 / 2 / 3
+```
+
+`-c ro 0 182` 读回为空，`-c rb 0 182` 也没有数值。说明这不是“参数写错”，
+而是 RMX 触控固件/驱动没有暴露动态 report rate 控制；之前的
+`touch rate applied` 日志只代表 HAL 调用返回 0，**不代表实际生效**。
+
+### 2.3 现在的处理
+
+- KSU `touch_rate.sh` 在 `/proc/touchpanel/report_rate` 不存在时直接返回，
+  不再把调用成功当成“已应用”；
+- `action.sh` 点击时打印 “report_rate is not exposed ... unsupported”；
+- Sense 移除可调滑条，改为“触控报告率”诊断行，显示驱动档位/是否支持；
+- 设置键 `op13_fix_touch_sampling_rate` 保留，仅作未来驱动支持时的配置位。
+
+### 2.4 结论
+
+RMX5010 上**不能通过软件调触控采样率**；系统/触控固件会按自己的策略切换
+（当前档位 0=自动）。如果要改，只能改 vendor 触控固件或 DTS，属于高风险
+方向，未做。
 
 ## 3. LHDC V5
 

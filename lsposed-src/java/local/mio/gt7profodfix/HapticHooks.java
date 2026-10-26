@@ -113,9 +113,14 @@ final class HapticHooks {
             value = 1.0f;
         }
         value = Math.max(0.3f, Math.min(1.2f, value));
-        cachedScale = value;
+        // The LRA amplitude response is not linear. Apply a mild perceptual
+        // curve so equal slider steps feel closer to equal strength changes;
+        // 1.0 remains 1.0 and the ends stay inside the tested range.
+        float factor = (float) Math.pow(value, 1.35f);
+        factor = Math.max(0.2f, Math.min(1.2f, factor));
+        cachedScale = factor;
         cachedScaleAt = now;
-        return value;
+        return factor;
     }
 
     private static int hookEffectTranslation(ClassLoader loader) {
