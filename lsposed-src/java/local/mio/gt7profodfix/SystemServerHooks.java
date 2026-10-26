@@ -1,6 +1,7 @@
 package local.mio.gt7profodfix;
 
 import android.annotation.SuppressLint;
+import android.app.KeyguardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -13,6 +14,7 @@ import android.os.Binder;
 import android.os.Handler;
 import android.os.PowerManager;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.view.InputDevice;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
@@ -35,6 +37,17 @@ final class SystemServerHooks {
     private static final int F4_KEY_CODE = KeyEvent.KEYCODE_F4;
     private static final int FOD_BRIDGE_SCAN_CODE = 63;
     private static final int FOD_BRIDGE_KEY_CODE = KeyEvent.KEYCODE_F5;
+    private static final int POWER_SCAN_CODE = 116;
+    private static final long POWER_DOUBLE_TAP_WINDOW_MS = 450L;
+    private static final String WALLET_PACKAGE = "com.finshell.wallet";
+    private static final String WALLET_SWIPE_CLASS =
+            "com.nearme.wallet.nfc.ui.NfcConsumeActivity";
+    private static final String WALLET_OPEN_ACTION =
+            "finshell.wallet.intent.action.OPEN";
+    private static final String WALLET_LOCKSCREEN_SESSION_EXTRA =
+            "local.mio.coloroswalletcompat.extra.LOCKSCREEN_SESSION";
+    private static final String DOUBLE_CLICK_POWER_SETTING =
+            "double_click_power_key";
     private static final int AOD_SINGLE_TAP_KEY_CODE = 354;
     private static final long DOUBLE_TAP_WINDOW_MS = 280L;
     private static final long DOUBLE_TAP_COOLDOWN_MS = 500L;
@@ -200,6 +213,14 @@ final class SystemServerHooks {
                     protected void beforeHookedMethod(MethodHookParam param) {
                         KeyEvent event = findKeyEvent(param.args);
                         if (event == null) {
+                            return;
+                        }
+                        if (event.getKeyCode() == KeyEvent.KEYCODE_POWER
+                                || event.getScanCode() == POWER_SCAN_CODE) {
+                            F4State state = stateFor(param.thisObject);
+                            if (state.handlePowerKey(event)) {
+                                param.setResult(0);
+                            }
                             return;
                         }
                         if (isAlertSliderEvent(event)) {
@@ -390,6 +411,98 @@ final class SystemServerHooks {
 
         boolean isInteractive() {
             return powerManager != null && powerManager.isInteractive();
+        }
+
+        private long lastPowerDownAt;
+
+        /**
+         * User-visible double-click-power wallet gesture. The ROM's
+         * launch_QAW_wallet path requires a QuickAccessWalletService on the
+         * WALLET role holder, which FinShell does not implement. Consume only
+         * the second POWER down and open FinShell's dedicated NFC swipe page.
+         */
+        boolean handlePowerKey(KeyEvent event) {
+            if (event.getAction() != KeyEvent.ACTION_DOWN
+                    || event.getRepeatCount() != 0) {
+                return false;
+            }
+            long now = event.getEventTime();
+            synchronized (this) {
+                if (lastPowerDownAt > 0L
+                        && now >= lastPowerDownAt
+                        && now - lastPowerDownAt <= POWER_DOUBLE_TAP_WINDOW_MS) {
+                    lastPowerDownAt = 0L;
+                    if (!walletDoubleTapEnabled() || !isLockedOrScreenOff()) {
+                        return false;
+                    }
+                    launchWalletSwipe();
+                    return true;
+                }
+                lastPowerDownAt = now;
+                return false;
+            }
+        }
+
+        private boolean isLockedOrScreenOff() {
+            if (powerManager != null && !powerManager.isInteractive()) {
+                return true;
+            }
+            if (context == null) {
+                return false;
+            }
+            try {
+                Object keyguard = context.getSystemService(Context.KEYGUARD_SERVICE);
+                return keyguard instanceof KeyguardManager
+                        && ((KeyguardManager) keyguard).isKeyguardLocked();
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+
+        private boolean walletDoubleTapEnabled() {
+            if (context == null) {
+                return false;
+            }
+            try {
+                context.getPackageManager().getPackageInfo(WALLET_PACKAGE, 0);
+            } catch (Throwable missing) {
+                return false;
+            }
+            try {
+                String action = Settings.System.getString(
+                        context.getContentResolver(), DOUBLE_CLICK_POWER_SETTING);
+                if (action != null) {
+                    return "launch_QAW_wallet".equals(action);
+                }
+                return Settings.Secure.getInt(context.getContentResolver(),
+                        "double_tap_power_button_gesture", 0) == 1;
+            } catch (Throwable error) {
+                HookLog.once("power_wallet_setting_error",
+                        "power wallet setting read failed: " + error);
+                return false;
+            }
+        }
+
+        private void launchWalletSwipe() {
+            try {
+                if (powerManager != null && !powerManager.isInteractive()) {
+                    Reflect.call(powerManager, "wakeUp",
+                            SystemClock.uptimeMillis(), "double_power_wallet");
+                }
+                Intent intent = new Intent(WALLET_OPEN_ACTION);
+                intent.setComponent(new ComponentName(
+                        WALLET_PACKAGE, WALLET_SWIPE_CLASS));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                        | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        | 0x00080000);
+                intent.putExtra(WALLET_LOCKSCREEN_SESSION_EXTRA, true);
+                context.startActivity(intent);
+                HookLog.info("power double tap -> " + WALLET_PACKAGE + "/"
+                        + WALLET_SWIPE_CLASS);
+            } catch (Throwable error) {
+                HookLog.error("power double tap launch failed", error);
+            }
         }
 
         void handleAlertSlider(KeyEvent event) {

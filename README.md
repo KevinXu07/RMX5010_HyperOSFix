@@ -50,6 +50,7 @@
 | Sense 配置前端 | — | 评估稿（尚未改 Sense） | — | — | [评估](docs/Sense配置前端评估.md) |
 | 未完成清单（2026-10-26） | — | 汇总待验证/未实现/不适用项 | — | — | [清单](docs/未完成清单.md) |
 | ColorOS 钱包（FinShell/TAS/HTMS/UPTsm/eID） | **haotian** | 五个钱包 APK（用户态）+ COS-WALLET-FIX LSP v0.11.0 + LSPosed scope | ✅ FinShell 首页、默认钱包、WALLET 角色、eSE C0 路由；HTMS 必需 | ⏳ 登录/实名/发卡/实际交易、系统 App 特权 | [移植记录](docs/ColorOS钱包_RMX5010移植.md) |
+| 双击电源键打开 NFC 刷卡页 | **haotian** | LSP `SystemServerHooks` 双击 POWER → `NfcConsumeActivity` | ✅ Hook 触发、Activity 启动绘制 | ⏳ 未登录/无卡，FinShell 自行 finish；登录+加卡后回归 | [移植记录](docs/ColorOS钱包_RMX5010移植.md#46-双击电源键打开刷卡页) |
 | SELinux 闭包与 EROFS 重建规范 | — | — | ✅ | — | [规范](docs/SELinux闭包与EROFS重建规范.md) |
 | 分区血缘与刷写顺序 | — | ✅ | ✅（历史包） | [说明](docs/分区血缘与刷机顺序.md) |
 | 历史修复（状态栏/灵动岛/相机/信号/音频/NFC/亮度…） | system/product/odm + KSU 模块 | 部分 | 部分 | [状态矩阵](docs/修复清单与状态矩阵.md) |

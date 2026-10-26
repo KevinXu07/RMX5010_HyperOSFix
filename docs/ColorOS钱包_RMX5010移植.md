@@ -166,6 +166,54 @@ wallet runtime permission grants updated=6
 不安装 `com.heytap.htms` 时，FinShell 会弹“请安装最新版本移动服务”。
 安装后该弹窗消失，HTMS 子进程启动并访问 `htms.heytapmobi.com`。
 
+### 4.6 双击电源键打开刷卡页
+
+本机设置：
+
+```text
+settings get system double_click_power_key
+launch_QAW_wallet
+settings get secure double_tap_power_button_gesture
+1
+```
+
+系统原本走 Android Quick Access Wallet（QAW），但 FinShell 没有声明
+`QuickAccessWalletService`；Settings 的
+`double_tap_power_wallet_footer_title` 正是
+“当前的默认钱包应用不支持该手势”。COS-WALLET-FIX 里只有 Mi TSM
+`DoubleClickActivity` → `CardPackageActivity` 的重定向，既没有处理 QAW
+检查，目标也是卡包页而不是 NFC 刷卡页。
+
+本仓库在 `SystemServerHooks` 里补了 `PhoneWindowManager` 双击 POWER
+检测：仅在 `launch_QAW_wallet`、锁屏/息屏时消费第二次 POWER，然后启动：
+
+```text
+com.finshell.wallet/com.nearme.wallet.nfc.ui.NfcConsumeActivity
+action: finshell.wallet.intent.action.OPEN
+extra:  local.mio.coloroswalletcompat.extra.LOCKSCREEN_SESSION=true
+flags:  NEW_TASK | SINGLE_TOP | CLEAR_TOP | 0x00080000
+```
+
+`NfcConsumeActivity` 的 manifest 已声明 `showWhenLocked=true`，extra 由
+COS-WALLET-FIX 的锁屏会话 hook 消费。
+
+实测日志：
+
+```text
+RMX5010HyperOSFix: power double tap -> com.finshell.wallet/com.nearme.wallet.nfc.ui.NfcConsumeActivity
+ActivityManager: Start proc ... for top-activity {com.finshell.wallet/...NfcConsumeActivity}
+```
+
+Activity 已创建并绘制，但当前设备未登录钱包、没有卡，FinShell 随后自己：
+
+```text
+NfcConsumeActivity: finishAndRemoveTask moveTaskToBack
+```
+
+所以“能启动刷卡页”已经验证；**登录并添加一张卡后页面是否能常驻，还需要
+实机回归**。Settings 里的静态 footer 仍可能显示，但运行时双击已被本 hook
+接管，不再走 QAW。
+
 ## 5. 失败实验：KSU system overlay
 
 尝试把五个 APK 放进 KSU 模块：
