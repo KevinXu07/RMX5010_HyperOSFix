@@ -226,16 +226,40 @@ RMX5010HyperOSFix: wallet gesture -> com.finshell.wallet/com.nearme.wallet.nfc.u
 unavailable` 或 `double_tap_power_wallet_not_supported`。界面停在“钱包 /
 充电卡 / 靠近读卡器”，即 NFC 刷卡页而不是卡包首页。
 
-息屏/锁屏状态双击也会启动同一 Activity；屏幕保持原有的锁屏状态，不会
-“先锁屏再弹页”。当前设备未登录钱包、没有卡，FinShell 随后自己：
+息屏/锁屏状态双击最初只能看到一帧：Activity 已经创建并绘制，但 HyperOS
+`ActivityRecordImpl.canShowWhenLocked()` 还会检查 AppOps `10020`
+（`MIUIOP(10020)`，show-when-locked）。FinShell 在本机是用户态安装，
+默认被拒绝：
 
 ```text
-NfcConsumeActivity: finishAndRemoveTask moveTaskToBack
+ActivityRecordImpl: MIUILOG- Show when locked PermissionDenied pkg : com.finshell.wallet uid : 10313
+KeyGuardHelper: showWhenLocked:
 ```
 
-所以“双击进入刷卡页”已经验证；**登录并添加一张卡后页面是否能常驻，
-还需要实机回归**。Settings 里的 “当前的默认钱包应用不支持该手势” 是静态
-footer，仍可能显示；运行时双击已不走 QAW，不会再弹该提示。
+Keyguard 因此暂停 Activity，FinShell 的 `onStop` 再走
+`SystemStateManager.postDelayFinish` → `finishAndRemoveTask`，表现为
+“锁屏双击弹不出来”。只给钱包包放行该 AppOp：
+
+```text
+cmd appops set com.finshell.wallet 10020 allow
+cmd appops get com.finshell.wallet 10020
+MIUIOP(10020): allow
+```
+
+之后锁屏双击，`mDreamingLockscreen=false`，`NfcConsumeActivity` 成为
+前台和 top-resumed activity，日志中没有 `PermissionDenied`、`onPause` 或
+`finishAndRemoveTask`。截图里锁屏时钟和刷卡页同时存在，说明页面确实覆盖
+在 Keyguard 上，而不是把设备解锁了。
+
+该授权已固化到：
+
+- `kernel-src/ksu-module/service.sh`：开机等 `sys.boot_completed=1` 后执行；
+- `scripts/install_cos_wallet.sh`：安装钱包 APK 后立即执行。
+
+这是 HyperOS 私有 AppOp，卸载钱包后可能被清除；重装后重跑安装脚本即可。
+当前设备未登录钱包、没有卡，但刷卡页已经能在锁屏常驻；登录并加卡后的
+选卡/交易仍需实机回归。Settings 里的 “当前的默认钱包应用不支持该手势”
+是静态 footer，仍可能显示；运行时双击已不走 QAW，不会再弹该提示。
 
 ## 5. 失败实验：KSU system overlay
 

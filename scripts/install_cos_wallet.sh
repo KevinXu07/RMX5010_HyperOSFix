@@ -80,6 +80,14 @@ for apk in \
   "${ADB_CMD[@]}" install -r "$apk"
 done
 
+echo "== allow FinShell swipe page over keyguard =="
+# HyperOS gates FLAG_SHOW_WHEN_LOCKED behind AppOps 10020 (MIUIOP(10020)).
+# User-installed FinShell is denied by default; without this the double-click
+# swipe page is paused by Keyguard and finishes itself.
+"${ADB_CMD[@]}" shell "cmd appops set com.finshell.wallet 10020 allow"
+"${ADB_CMD[@]}" shell "cmd appops get com.finshell.wallet 10020" | grep -q 'allow' \
+  || { echo "warning: show-when-locked app-op not applied" >&2; }
+
 echo "== install COS-WALLET-FIX LSP module =="
 "${ADB_CMD[@]}" install -r "$LSP_APK"
 

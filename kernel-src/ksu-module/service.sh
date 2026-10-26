@@ -150,6 +150,27 @@ apply_ifaa_policy
   done
 ) >> "$LOG" 2>&1 &
 
+# ---- ColorOS wallet: allow the swipe page over the lock screen ----
+# HyperOS gates FLAG_SHOW_WHEN_LOCKED behind AppOps 10020 (MIUIOP(10020)).
+# FinShell is installed as a user app here, so the unprivileged default is
+# "ignore": Keyguard pauses NfcConsumeActivity, then FinShell's onStop path
+# finishes it. Grant only the wallet package; this is the same visibility a
+# preinstalled system wallet gets.
+(
+  i=0
+  while [ $i -lt 120 ]; do
+    [ "$(getprop sys.boot_completed)" = 1 ] && break
+    sleep 1
+    i=$((i+1))
+  done
+  if pm list packages 2>/dev/null | grep -qx 'package:com.finshell.wallet'; then
+    out=$(cmd appops set com.finshell.wallet 10020 allow 2>&1)
+    log "wallet show-when-locked: ${out:-ok}"
+  else
+    log "wallet show-when-locked: package absent"
+  fi
+) >> "$LOG" 2>&1 &
+
 # Watch for touchDaemon restarts (gesture state is per-process).
 (
   last_pid=
