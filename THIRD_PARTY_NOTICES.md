@@ -32,6 +32,11 @@ SELinux 策略片段。mtd 块由本项目从**本机已验证的 OS3 策略**�
 - `MiChargeHooks.java`、`MiChargeFrameworkBridge.java`、
   `MiChargePresentationHooks.java`、`SecurityCenterTimeHooks.java`：从该项目的
   MiCharge/手机管家实现移植，按 RMX5010 的包名、scope 和实际可用类名适配。
+- ColorOS 钱包移植使用同一作者的 `COS-WALLET-FIX` v0.11.0：LSP 兼容模块
+  `COS_WALLET_FIX_v0.11.0.apk`，以及 release 包内的 FinShellWallet、TasWallet、
+  HeytapHTMS、UPTsmService、EidService APK/原生库。它们**不在本仓库内**，
+  由 `scripts/install_cos_wallet.sh` 按 SHA-256 从上游 release 下载。第三方
+  APK/JAR/SO 的版权归原权利人，不随本仓库的 MIT/项目授权改变。
 - `IfaaHooks`、触感兼容层和 SELinux 处理思路参考了该项目的对应实现，
   代码已按 RMX5010 的包名、AIDL 签名、HAL 域名和马达特性重写。
 
