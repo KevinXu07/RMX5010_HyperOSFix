@@ -7,6 +7,17 @@ log() {
   echo "$(date '+%m-%d %H:%M:%S') $*" >> "$LOG"
 }
 
+# ---- touch report-rate config (retry if post-fs-data was too early) ----
+. "$MODDIR/touch_config.sh"
+ensure_touch_config
+touch_config_rc=$?
+log "touch config: $touch_config_rc"
+if [ "$touch_config_rc" = 0 ]; then
+  setprop ctl.restart touchDaemon
+  sleep 2
+  log "touchDaemon restarted after config patch"
+fi
+
 # ---- FOD touch bridge ----
 i=0
 while [ $i -lt 60 ]; do

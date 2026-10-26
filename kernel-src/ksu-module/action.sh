@@ -10,9 +10,9 @@ log() {
 
 . "$MODDIR/touch_rate.sh"
 
-if [ ! -e "$TOUCH_RATE_NODE_FILE" ]; then
-  echo "touch report_rate is not exposed by this touch driver; dynamic rate unsupported"
-  log "action: report_rate node absent"
+if ! touch_rate_supported; then
+  echo "touch report_rate config is not active; reboot after installing the module"
+  log "action: report_rate config missing"
   exit 0
 fi
 
@@ -22,11 +22,10 @@ settings put global "$TOUCH_OWNER_KEY" module
 
 current=$(touch_rate_value) || current=unset
 case "$current" in
-  70) next=120 ;;
   120) next=180 ;;
   180) next=240 ;;
   240) next=360 ;;
-  360) next=70 ;;
+  360) next=120 ;;
   *) next=120 ;;
 esac
 

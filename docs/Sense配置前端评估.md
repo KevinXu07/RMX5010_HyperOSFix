@@ -144,7 +144,7 @@ KSU 挂载，职责清晰。最终形态进一步把主 hooks 与钱包 hooks �
 ### 6.1 模块结构
 
 ```text
-KSU 模块   rmx5010_fod_bridge（显示名 RMX5010 HyperOS Fix，1.1.0）
+KSU 模块   rmx5010_fod_bridge（显示名 RMX5010 HyperOS Fix，1.2.0）
            FOD 桥、双击亮屏、触控采样率、音频 bind mount、
            IFAA SELinux、钱包锁屏 AppOp、ctl.sh/status
 LSPosed    com.zephiel.sense（唯一模块）
@@ -165,9 +165,11 @@ Sense 的 `SenseXposedEntry` 同时调用
 
 “系统增强”：
 
-- 触控报告率：只读诊断。RMX 驱动未暴露 `/proc/touchpanel/report_rate`，
-  `touchHidlTest -c wo 0 182` 返回 0 但 `main_register` 档位不变，因此不提供
-  可调滑条；页面直接显示“动态采样率不可用，当前自动档位”。
+- 触控报告率：显示驱动档位；touchDaemon 的两个 report_rate 配置开关由
+  KSU 模块开机补丁启用。
+- 触控采样率：120/180/240/360Hz 列表。选择后写
+  `op13_fix_touch_sampling_rate`/`owner=module` 并立即写节点 182；
+  `service.sh` 负责亮屏应用所选值、息屏写 120Hz。
 - 屏幕刷新率：曾加入 120/60Hz（`user_refresh_rate` + `miui_refresh_rate`），
   实测只改变 `mDesiredDisplayModeSpecs` 的 render 上限，`mActiveModeId`/
   `SurfaceFlinger.activeMode` 仍是 120Hz，实际无效果，已从 UI 和服务移除。
@@ -182,8 +184,8 @@ Sense 的 `SenseXposedEntry` 同时调用
   `vendor.oplus.hardware.gameopt.IGameOptHalService`、QTI
   `vendor.perfservice`/`IPerf`、MIUI `PerfEngService`/`SchedBoostService`
   等原生入口，后续可评估接这些，而不是照搬 OP13 内核模块。
-- 游戏自动加速：保留按应用切换；游戏时把 CPU governor 设为 performance，
-  不再包含触控采样率调节。
+- 游戏自动加速：保留按应用切换；游戏时把 CPU governor 设为 performance。
+  触控采样率由独立的全局列表控制。
 
 “交互体验”：
 
@@ -194,6 +196,8 @@ Sense 的 `SenseXposedEntry` 同时调用
 “移植修复”：
 
 - 模块状态：KSU 版本、LSP 激活、触控/触感、钱包/刷卡权限、音频补丁、IFAA。
+- 状态栏反色：`StatusBarHooks` 归一化 SystemUI 的 displayId（3 个回调），
+  不再依赖 50 MB MiuiSystemUI APK 替换。
 - 触感强度：0.3–1.2，写 `op13_fix_haptic_scale`；`HapticHooks` 在系数上
   额外应用 1.35 次幂曲线，让等距滑条更接近等强度的主观手感。
 - IFAA 型号：写 `op13_fix_ifaa_model`，并重启 IFAA 进程。
@@ -205,13 +209,13 @@ Sense 的 `SenseXposedEntry` 同时调用
 - 自动高亮补光（RMX 是超声波指纹，不需要 AOD 补光）；
 - 物理按键映射（RMX 没有额外的可映射按键）；
 - 线性马达 `sys.haptic.*` 实验入口（与模块强度系数冲突）；
-- 日常/游戏触控采样率滑条（驱动不支持）。
+- 屏幕刷新率列表（只改 desired，activeMode 不变）。
 
 ### 6.3 冲突处理
 
-- **触控**：Sense 已移除 `TouchEnhanceManager` 的直接节点写入；KSU
-  `touch_rate.sh` 在 `/proc/touchpanel/report_rate` 不存在时直接跳过。
-  两边都不会再把“HAL 返回 0”当成实际生效。
+- **触控**：Sense 列表写设置/owner 后立即写节点 182；KSU `touch_rate.sh`
+  只在 touchDaemon 两个 report_rate 开关存在时写节点，负责亮灭屏切换。
+  两边都读同一设置，不再把“HAL 返回 0”当成实际生效。
 - **抬起亮屏**：Sense 开关只写系统设置；系统传感器与 LSP
   `SystemUiHooks` 的开关门控负责实际唤醒，不再有独立加速度计路径。
 - **触感**：只保留模块 `op13_fix_haptic_scale`；Sense 原生 `sys.haptic.*`
@@ -229,11 +233,13 @@ Sense 的 `SenseXposedEntry` 同时调用
   没有 `PermissionDenied`/`QAWalletSClient`。
 - 旧模块 `local.mio.gt7profodfix` 和 `local.mio.coloroswalletcompat`
   已卸载，避免重复 hook。
-- 触控诊断：`/proc/touchpanel/report_rate` 不存在；`touchHidlTest` 写
-  `1/2/3/120/240`（wo/ws/wb）后 `main_register` 仍为
-  `report rate(...): 0`，确认动态采样率不可用。
+- 触控采样率：修补 touchDaemon 配置后 `touch_supported=1`；Sense 选
+  240Hz 后 daemon 日志 `frame_rate_parse ... actual rate 240`、
+  `ts_set_frame_rate: Successful to set 3`；息屏写 120、亮屏回 240。
 - 屏幕刷新率：设置 60Hz 后 `mDesiredDisplayModeSpecs` render 变为 60，但
   `mActiveModeId`/SurfaceFlinger activeMode 仍是 120Hz；实际无效果，已移除。
+- 状态栏反色：`StatusBarHooks` 在 SystemUI 安装 3 个 displayId 归一化 hook，
+  对已带直比较补丁的现机为幂等；日志 `status bar color normalization hooks=3`。
 - 性能调度：选省电后两个 policy 的 governor 都是 `powersave`；选均衡后
   都是 `schedutil`；持久化由 SenseService 应用。
 - 抬起唤醒：开关打开/关闭分别把 `pick_up_gesture_wakeup_mode` 写成 1/0。

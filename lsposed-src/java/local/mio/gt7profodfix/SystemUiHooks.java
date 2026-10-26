@@ -63,6 +63,7 @@ final class SystemUiHooks {
         hookAodDoubleTapPocketGuard(loader);
         MiChargePresentationHooks.install(loader);
         WalletHooks.install(loader);
+        StatusBarHooks.install(loader);
         HookLog.info("SystemUI hooks installed in " + processName);
     }
 

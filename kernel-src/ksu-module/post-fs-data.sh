@@ -13,6 +13,11 @@ log() {
   echo "$(date '+%m-%d %H:%M:%S') $*" >> "$LOG"
 }
 
+# ---- touch report-rate config ----
+. "$MODDIR/touch_config.sh"
+ensure_touch_config
+log "touch config: $?"
+
 SRC="$MODDIR/audio"
 TARGET=/system_ext/lib64
 for f in libaudiopolicymanagerimpl.so libmiaudiopolicymanager.so; do

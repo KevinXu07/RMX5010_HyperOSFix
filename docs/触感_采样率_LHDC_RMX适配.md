@@ -6,7 +6,7 @@
 |---|---|
 | 触感私有效果映射 + 支持列表扩展 | ✅ 实机加载（map=1/info=1） |
 | RMX 触感强度系数 | ✅ 实测 0.7 生效（scale=0.70，Step 振幅 0.70） |
-| 触控采样率节点 182 + 亮灭屏切换 | ❌ 实机确认驱动未暴露 `report_rate`；HAL 调用返回 0 但速率不变 |
+| 触控采样率节点 182 + 亮灭屏切换 | ✅ 实机：touchDaemon 两个 report_rate 配置开关启用后，120/180/240/360Hz 切换生效 |
 | LHDC V5 软件编码器桥接 | ✅ 实机安装成功（status=7），⏳ 未接 LHDC 耳机试听 |
 
 ## 1. 触感
@@ -107,63 +107,81 @@ scale=0.8 -> 0.74
   RTP 功能依赖 `IOplusVibrator` 和小米 RTP 资源，在 RMX 上不可直接复用。
 - 指纹成功/失败触感需要至少一枚已录指纹才能实机验证。
 
-## 2. 触控采样率
+## 2. 触控采样率（已修复）
 
-### 2.1 节点存在性
+### 2.1 根因
 
-`touchHidlTest` 的节点表里确实有：
+`touchHidlTest` 的节点表一直有：
 
 ```text
 HBP node:[182] path:/proc/touchpanel/report_rate
 ```
 
-但 RMX5010 的 Synaptics 驱动**没有创建这个 proc 节点**：
+但写 `touchHidlTest -c wo 0 182 <Hz>` 返回 0 后，驱动档位并不变化。根因不在
+HAL，而在 `touchDaemon` 读取的
+`/data/vendor/touchconfig/sys_touch_function_feature_config.xml`：
 
 ```text
-/proc/touchpanel/report_rate: No such file or directory
-/proc/touchpanel/report_rate_white_list: No such file or directory
-/proc/touchpanel/game_mode: No such file or directory
-/proc/touchpanel/high_frame_enable: No such file or directory
+report_rate_white_list_support       默认 false
+game_mode_divided_report_rate_support 默认 false
+→ gameModeDividedReportRateSupport false, REPORT_RATE_NODE not support
 ```
 
-驱动只在 `debug_info/main_register` 里打印固定映射：
+ODM 里的 `/odm/firmware/tp/24600/sys_touch_function_feature_config.xml`
+版本与 data 配置相同（2025070901），且同样没有这两个开关；所以 data 配置
+即使改了也不会被选中。把 data 配置版本抬高并加上两个开关后，节点 182
+立刻变成可写。
+
+### 2.2 模块实现
+
+KSU 模块新增：
 
 ```text
-report rate(1:120HZ,2:240HZ,3:180HZ): 0
+kernel-src/ksu-module/touch/sys_touch_function_feature_config.xml
+    两块 panel（SAMSUNG/BOE）的 TouchConfig 都加：
+    report_rate_white_list_support=1
+    game_mode_divided_report_rate_support=1
+    version=2025070999
+kernel-src/ksu-module/touch_config.sh
+    校验原文件 SHA-256（9b352e16…），备份为 .bak_touchrate，
+    覆盖、chown/chmod/restorecon
+post-fs-data.sh + service.sh
+    开机确保配置；如果 service 阶段才补上，重启一次 touchDaemon
 ```
 
-### 2.2 写入测试结果
+原文件不是已知哈希时不会覆盖，避免误伤其它固件版本。
 
-以下方式都试过，HAL/工具都返回 0，但 `main_register` 的档位始终是 0：
+### 2.3 Sense / KSU 控制
+
+- KSU `touch_rate.sh` 只在两个配置开关都存在时才写节点；
+- Sense“系统增强”新增“触控采样率”列表：120/180/240/360Hz；
+- 选中后写 `op13_fix_touch_sampling_rate`、`op13_fix_touch_owner=module`，
+  并立即调用 `touchHidlTest -c wo 0 182 <rate>`；
+- `service.sh` 亮屏应用所选档位，息屏写 120Hz（最低支持档），不再写无效的 70。
+
+### 2.4 实机验证
 
 ```text
-touchHidlTest -c wo 0 182 1 / 2 / 3 / 120 / 240
-touchHidlTest -c ws 0 182 1 / 2 / 3
-touchHidlTest -c wb 0 182 1 / 2 / 3
+ctl.sh status:
+touch_supported=1
+touch_driver=...（debug_info 档位）
+
+选 240Hz:
+OplusTouchDaemon: frame_rate_parse:set frame rate 240 frame_rate_mode = 3 (actual rate 240)
+OplusTouchDaemon: ts_set_frame_rate: Successful to set 3
+
+息屏:
+touch rate screen off: 120 Hz
+亮屏:
+touch rate applied: 240 Hz
 ```
 
-`-c ro 0 182` 读回为空，`-c rb 0 182` 也没有数值。说明这不是“参数写错”，
-而是 RMX 触控固件/驱动没有暴露动态 report rate 控制；之前的
-`touch rate applied` 日志只代表 HAL 调用返回 0，**不代表实际生效**。
+### 2.5 历史更正
 
-### 2.3 现在的处理
-
-- KSU `touch_rate.sh` 在 `/proc/touchpanel/report_rate` 不存在时直接返回，
-  不再把调用成功当成“已应用”；
-- `action.sh` 点击时打印 “report_rate is not exposed ... unsupported”；
-- Sense 移除可调滑条，改为“触控报告率”诊断行，显示驱动档位/是否支持；
-- 设置键 `op13_fix_touch_sampling_rate` 保留，仅作未来驱动支持时的配置位。
-
-### 2.4 结论
-
-RMX5010 上**不能通过软件调触控采样率**；系统/触控固件会按自己的策略切换
-（当前档位 0=自动）。如果要改，只能改 vendor 触控固件或 DTS，属于高风险
-方向，未做。
-
-> 2026-10-27 更正：提交 `6ed96a0` 里“360→息屏 70→亮屏 360”的记录来自
-> `touchHidlTest` 返回值和模块日志，并没有读回驱动实际档位；后续用
-> `debug_info/main_register` 复核发现档位始终为 0，所以那是一次误判。
-> 当前实现不再把“HAL 返回 0”写成“已应用”。
+提交 `6ed96a0` 里的“360→息屏 70→亮屏 360”只来自 `touchHidlTest` 返回值和
+模块日志，没有读回驱动实际档位，属于误判。现在以 `touchDaemon` 的
+`frame_rate_parse` / `ts_set_frame_rate` 日志和 `main_register` 档位为准，
+并且实机确认了息屏/亮屏切换。
 
 ## 3. LHDC V5
 
