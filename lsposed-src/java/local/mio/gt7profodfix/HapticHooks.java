@@ -102,7 +102,7 @@ final class HapticHooks {
             return 1.0f;
         }
         long now = SystemClock.uptimeMillis();
-        if (now - cachedScaleAt < 3000L) {
+        if (now - cachedScaleAt < 500L) {
             return cachedScale;
         }
         String raw = ModuleConfig.getString(context, ModuleConfig.HAPTIC_SCALE, "1.0");

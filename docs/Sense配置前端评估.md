@@ -26,8 +26,7 @@ Root       RootUtils：持久 `su` shell + 结束标记 + 超时/重试
   VibrationManager
 ```
 
-2026-10-27 清理后，Service 只保留 `DisplayColorModeManager`（刷新率）、
-`AodBrightnessManager`、`CpuGovernorManager`；`FingerprintFixManager`、
+2026-10-27 清理后，Service 只保留 `AodBrightnessManager`、`CpuGovernorManager`；`FingerprintFixManager`、
 `LiftToWakeManager`、`ShortcutKeyManager`、`VibrationManager`、
 `TouchEnhanceManager` 已不再启动（类文件保留但未使用）。
 
@@ -169,13 +168,20 @@ Sense 的 `SenseXposedEntry` 同时调用
 - 触控报告率：只读诊断。RMX 驱动未暴露 `/proc/touchpanel/report_rate`，
   `touchHidlTest -c wo 0 182` 返回 0 但 `main_register` 档位不变，因此不提供
   可调滑条；页面直接显示“动态采样率不可用，当前自动档位”。
-- 屏幕刷新率：120Hz / 60Hz，写 `Settings.Secure.user_refresh_rate`。
-  实测 `mDesiredDisplayModeSpecs` 的 render 从 120.0 变为 60.0。
+- 屏幕刷新率：曾加入 120/60Hz（`user_refresh_rate` + `miui_refresh_rate`），
+  实测只改变 `mDesiredDisplayModeSpecs` 的 render 上限，`mActiveModeId`/
+  `SurfaceFlinger.activeMode` 仍是 120Hz，实际无效果，已从 UI 和服务移除。
+  也试过 root 执行 `cmd display set-user-preferred-display-mode`，返回 0 但
+  preferred mode 仍为 null，说明 HyperOS/显示 HAL 不接受该切换。
 - 息屏显示亮度：保留原有 AOD 亮度开关。
 - 性能调度：省电/均衡/性能，映射到 CPU governor
   `powersave` / `schedutil` / `performance`，写入所有 policy 并持久化。
   一加 13 的完整 `op13_scene_sched` 需要专用内核模块，RMX 没有该模块，
-  因此只接 CPU governor 预设。
+  因此只接 CPU governor 预设。RMX 自身还有
+  `vendor.oplus.hardware.performance.IPerformance`、
+  `vendor.oplus.hardware.gameopt.IGameOptHalService`、QTI
+  `vendor.perfservice`/`IPerf`、MIUI `PerfEngService`/`SchedBoostService`
+  等原生入口，后续可评估接这些，而不是照搬 OP13 内核模块。
 - 游戏自动加速：保留按应用切换；游戏时把 CPU governor 设为 performance，
   不再包含触控采样率调节。
 
@@ -226,13 +232,15 @@ Sense 的 `SenseXposedEntry` 同时调用
 - 触控诊断：`/proc/touchpanel/report_rate` 不存在；`touchHidlTest` 写
   `1/2/3/120/240`（wo/ws/wb）后 `main_register` 仍为
   `report rate(...): 0`，确认动态采样率不可用。
-- 屏幕刷新率：选择 60Hz 后 `settings get secure user_refresh_rate=60`，
-  `mDesiredDisplayModeSpecs` render 从 120.0 变为 60.0；恢复 120 正常。
+- 屏幕刷新率：设置 60Hz 后 `mDesiredDisplayModeSpecs` render 变为 60，但
+  `mActiveModeId`/SurfaceFlinger activeMode 仍是 120Hz；实际无效果，已移除。
 - 性能调度：选省电后两个 policy 的 governor 都是 `powersave`；选均衡后
   都是 `schedutil`；持久化由 SenseService 应用。
 - 抬起唤醒：开关打开/关闭分别把 `pick_up_gesture_wakeup_mode` 写成 1/0。
-- 触感：`haptic_scale=0.8` 时 LSPosed 日志为
-  `haptic feedback scale=0.7398974`（1.35 次幂曲线），UI“测试触感”可播放短振动。
+- 触感：`haptic_scale=0.8` 时 `dumpsys vibrator_manager` 显示
+  `scale NONE (0.74)`、`played amplitude 0.74`；1.2 时 scale 1.20、
+  played 1.00。缓存从 3 秒改为 500ms，滑块变化后基本即时生效；
+  “测试触感”改为 80ms 单次振动。
 - Sense 使用 release 构建并签名（非 debuggable），不再出现“可调试应用”
   的 16 KB 兼容性警告；LSPosed 仍能正常加载。
 

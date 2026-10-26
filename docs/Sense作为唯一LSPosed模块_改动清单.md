@@ -81,7 +81,7 @@ LHDC 代码按绝对路径从 `ApplicationInfo.nativeLibraryDir` 加载
 
 ```text
 SettingsActivity.kt        系统增强 + 移植修复 + 交互体验
-SettingsViewModel.kt       状态、触感、IFAA、钱包测试、刷新率、调度
+SettingsViewModel.kt       状态、触感、IFAA、钱包测试、调度
 ModuleControlManager.java  KSU ctl.sh / Settings.Global 契约
 strings.xml                新增文案
 ```
@@ -93,7 +93,7 @@ strings.xml                新增文案
 - 移除线性马达 `sys.haptic.*` 实验入口；
 - 移除日常/游戏触控采样率滑条，改为只读诊断；
 - 抬起唤醒开关直接读写系统 `pick_up_gesture_wakeup_mode`；
-- 新增屏幕刷新率 120/60Hz（`user_refresh_rate`）；
+- 曾尝试屏幕刷新率 120/60Hz，但只改 desired、activeMode 仍 120，已移除；
 - 新增性能调度预设（`powersave` / `schedutil` / `performance`）；
 - 新增“测试触感”按钮和 1.35 次幂触感曲线。
 

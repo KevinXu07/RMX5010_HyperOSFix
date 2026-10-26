@@ -48,7 +48,7 @@
 | 音频卡顿（appname 参数） | **haotian** | KSU `post-fs-data.sh` bind-mount 补丁库（8×`blr x8`→`nop`） | ✅ 原/补丁哈希、8 个调用点逐字节核对；目标哈希匹配 | ✅ audioserver/铃声预览通过；主观听感待回归 | [补丁说明](docs/音频卡顿_appname补丁.md) |
 | 抬起亮屏严格服从开关 | **haotian** | LSPosed `SettingsHooks` 暴露开关 + `SystemUiHooks` 只读设置 + ContentObserver | ✅ 开/关时 type 22 注册/注销，模块不写设置 | ✅ 实机 | [说明](docs/抬起亮屏_严格服从系统开关.md) |
 | Sense 配置前端 / 唯一 LSPosed 模块 | **haotian** | `com.zephiel.sense`（Compose UI + `SenseXposedEntry` + 主 hooks + 钱包 hooks + `oplus-fwk.jar`） | ✅ 合并源码后 Gradle 构建通过；KSU `ctl.sh` 状态读取正常 | ✅ 实机（SukiSU 授权、LSPosed 各进程加载、锁屏/解锁刷卡页、配置页状态） | [评估与落地](docs/Sense配置前端评估.md) |
-| Sense 屏幕刷新率 / 性能调度 | **haotian** | Sense 写 `user_refresh_rate`；CPU governor `powersave`/`schedutil`/`performance` 预设 | ✅ `mDesiredDisplayModeSpecs` 120→60；两簇 governor 切换实测 | ✅ 实机 | [评估与落地](docs/Sense配置前端评估.md) |
+| Sense 性能调度 / 刷新率尝试 | **haotian** | CPU governor `powersave`/`schedutil`/`performance` 预设；刷新率写 `user_refresh_rate`/`miui_refresh_rate` | ✅ 两簇 governor 切换实测；❌ 刷新率只改 desired，`activeMode` 仍 120，已从 UI 移除 | ✅ 实机（调度）；刷新率无效 | [评估与落地](docs/Sense配置前端评估.md) |
 | 模块合并形态 | **haotian** | 一个 KSU 模块（`rmx5010_fod_bridge` 1.1.0）+ Sense 作为唯一 LSPosed 模块 | ✅ `build_sense_module.sh` / `register_sense_lsposed.sh` / `ctl.sh` | ✅ 实机 | [说明](docs/Sense配置前端评估.md) |
 | 未完成清单（2026-10-27） | — | 汇总待验证/未实现/不适用项 | — | — | [清单](docs/未完成清单.md) |
 | ColorOS 钱包（FinShell/TAS/HTMS/UPTsm/eID） | **haotian** | 五个钱包 APK（用户态）+ Sense 内钱包 hooks + LSPosed scope | ✅ FinShell 首页、默认钱包、WALLET 角色、eSE C0 路由；HTMS 必需 | ⏳ 登录/实名/发卡/实际交易、系统 App 特权 | [移植记录](docs/ColorOS钱包_RMX5010移植.md) |
