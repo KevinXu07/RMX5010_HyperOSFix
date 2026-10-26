@@ -73,6 +73,7 @@ final class SystemServerHooks {
         hookPhoneWindowManager(loader);
         hookIfaaFingerprintAccess(loader);
         HapticHooks.install(loader);
+        MiChargeFrameworkBridge.install(loader);
         HookLog.info("system_server hooks installed");
     }
 

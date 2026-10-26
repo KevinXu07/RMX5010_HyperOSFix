@@ -44,6 +44,10 @@
 | 触感兼容 / 强度校准 | **haotian** | LSPosed `HapticHooks`（私有效果映射、VibratorInfo 扩展、`VibrationScaler` 系数） | ✅ map/info/scale hook 加载；0.7 实测振幅 0.70 | ✅ 实机（最终 0.8；波形细调待手感） | [适配记录](docs/触感_采样率_LHDC_RMX适配.md) |
 | 触控采样率（节点 182） | **haotian** | KSU `touch_rate.sh` / `action.sh` / `service.sh` | ✅ 120Hz 写入；360→息屏70→亮屏360 | ✅ 实机日志（实际报告率待物理滑动确认） | [适配记录](docs/触感_采样率_LHDC_RMX适配.md) |
 | LHDC V5 编码器桥接 | **haotian** | LSPosed `com.android.bluetooth` + NDK 编译 helper + Savitech 编码库 | ✅ `status=7`、接口安装成功、蓝牙稳定 | ⏳ 未配对 LHDC 耳机做端到端试听 | [适配记录](docs/触感_采样率_LHDC_RMX适配.md) |
+| MiCharge / 手机管家电池时间 | **haotian** | LSPosed `MiCharge*` + `SecurityCenterTimeHooks`，scope SecurityCenter/Manager | ✅ 框架桥/W MAX 安装；电池页 0→36 时 36 分 | ⏳ 充电中预计充满/小数/W MAX 待插充电器 | [适配记录](docs/MiCharge与电池时间_RMX适配.md) |
+| 音频卡顿（appname 参数） | **haotian** | KSU `post-fs-data.sh` bind-mount 补丁库（8×`blr x8`→`nop`） | ✅ 原/补丁哈希、8 个调用点逐字节核对；目标哈希匹配 | ✅ audioserver/铃声预览通过；主观听感待回归 | [补丁说明](docs/音频卡顿_appname补丁.md) |
+| 抬起亮屏严格服从开关 | **haotian** | LSPosed `SettingsHooks` 暴露开关 + `SystemUiHooks` 只读设置 + ContentObserver | ✅ 开/关时 type 22 注册/注销，模块不写设置 | ✅ 实机 | [说明](docs/抬起亮屏_严格服从系统开关.md) |
+| Sense 配置前端 | — | 评估稿（尚未改 Sense） | — | — | [评估](docs/Sense配置前端评估.md) |
 | SELinux 闭包与 EROFS 重建规范 | — | — | ✅ | — | [规范](docs/SELinux闭包与EROFS重建规范.md) |
 | 分区血缘与刷写顺序 | — | ✅ | ✅（历史包） | [说明](docs/分区血缘与刷机顺序.md) |
 | 历史修复（状态栏/灵动岛/相机/信号/音频/NFC/亮度…） | system/product/odm + KSU 模块 | 部分 | 部分 | [状态矩阵](docs/修复清单与状态矩阵.md) |

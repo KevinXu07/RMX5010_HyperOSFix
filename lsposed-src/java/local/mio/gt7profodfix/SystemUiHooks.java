@@ -1,6 +1,7 @@
 package local.mio.gt7profodfix;
 
 import android.content.BroadcastReceiver;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -11,6 +12,7 @@ import android.hardware.SensorManager;
 import android.os.AsyncTask;
 import android.os.Handler;
 import android.os.PowerManager;
+import android.database.ContentObserver;
 import android.provider.Settings;
 import android.view.MotionEvent;
 
@@ -59,6 +61,7 @@ final class SystemUiHooks {
         hookFodSensors(loader);
         hookFodManager(loader);
         hookAodDoubleTapPocketGuard(loader);
+        MiChargePresentationHooks.install(loader);
         HookLog.info("SystemUI hooks installed in " + processName);
     }
 
@@ -165,6 +168,32 @@ final class SystemUiHooks {
                             }
                         }, 250L);
                     }
+                    // RMX SystemUI does not observe the setting by itself, so a
+                    // toggle would otherwise leave the type 22 sensor in its
+                    // previous state until the process restarts.
+                    Object contextObject = Reflect.get(owner, "mContext");
+                    if (contextObject instanceof Context) {
+                        ContentResolver resolver = ((Context) contextObject)
+                                .getContentResolver();
+                        ContentObserver observer = new ContentObserver(
+                                handlerObject instanceof Handler
+                                        ? (Handler) handlerObject : null) {
+                            @Override
+                            public void onChange(boolean selfChange) {
+                                try {
+                                    Reflect.call(owner, "updatePickupSensorRegistration");
+                                } catch (Throwable error) {
+                                    HookLog.error("pickup setting refresh failed", error);
+                                }
+                            }
+                        };
+                        resolver.registerContentObserver(
+                                Settings.System.getUriFor(PICKUP_SETTING),
+                                false, observer);
+                        XposedHelpers.setAdditionalInstanceField(owner,
+                                "op13fix_pickup_observer", observer);
+                        HookLog.info("pickup setting observer registered");
+                    }
                 } catch (Throwable error) {
                     HookLog.error("pickup object wiring failed", error);
                 }
@@ -219,6 +248,12 @@ final class SystemUiHooks {
         boolean pickupEnabled = isPickupEnabled(owner);
         boolean shouldRegister = pickupEnabled
                 && (!interactive || (keyguardShowing && wokeByPickup));
+        HookLog.once("pickup-state-" + shouldRegister,
+                "pickup sensor registered=" + shouldRegister
+                        + " switch=" + pickupEnabled
+                        + " interactive=" + interactive
+                        + " keyguard=" + keyguardShowing
+                        + " wokeByPickup=" + wokeByPickup);
 
         synchronized (owner) {
             boolean current = Reflect.getBoolean(owner, false, "mCurrentPickupSensorRegistered");

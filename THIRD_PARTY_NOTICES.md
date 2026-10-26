@@ -29,6 +29,9 @@ SELinux 策略片段。mtd 块由本项目从**本机已验证的 OS3 策略**�
 - `lsposed-src/libs/arm64-v8a/liblhdcv5.so`、
   `liblhdcv5BT_enc.so`：LHDC/Savitech 编码器二进制，来自该项目
   `app/src/main/jniLibs/arm64-v8a/`，本仓库原样保留。
+- `MiChargeHooks.java`、`MiChargeFrameworkBridge.java`、
+  `MiChargePresentationHooks.java`、`SecurityCenterTimeHooks.java`：从该项目的
+  MiCharge/手机管家实现移植，按 RMX5010 的包名、scope 和实际可用类名适配。
 - `IfaaHooks`、触感兼容层和 SELinux 处理思路参考了该项目的对应实现，
   代码已按 RMX5010 的包名、AIDL 签名、HAL 域名和马达特性重写。
 

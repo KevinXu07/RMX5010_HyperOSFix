@@ -8,6 +8,7 @@ SDK="${SDK:-/d/AndroidSDK}"
 BT="$SDK/build-tools/36.0.0"
 AJAR="$SDK/platforms/android-37.0/android.jar"
 JAVA_HOME="${JAVA_HOME:-/d/Program Files/Android/Android Studio/jbr}"
+JAVA="$JAVA_HOME/bin/java"
 JAVAC="$JAVA_HOME/bin/javac"
 JAR="$JAVA_HOME/bin/jar"
 KEYTOOL="$JAVA_HOME/bin/keytool"
@@ -38,11 +39,10 @@ echo "== [3] aapt2 资源 =="
   --version-code 1 --version-name 1.0.0 --auto-add-overlay
 
 echo "== [4] d8 转 dex =="
-find "$OUT/classes" -name '*.class' | while read -r f; do win "$f"; done > "$OUT/classfiles.txt"
-D8ARGS=()
-while IFS= read -r f; do D8ARGS+=("$f"); done < "$OUT/classfiles.txt"
-JAVA_HOME="$JH_W" "$BT/d8.bat" --release --min-api 35 --lib "$(win "$AJAR")" \
-  --output "$(win "$OUT/dex")" "${D8ARGS[@]}"
+# Pass one jar instead of every .class: the MiCharge port pushes the Windows
+# command line over its length limit.
+"$JAR" cf "$OUT/classes.jar" -C "$OUT/classes" .
+"$JAVA" -cp "$BT/lib/d8.jar" com.android.tools.r8.D8 --release --min-api 35   --lib "$(win "$AJAR")" --output "$(win "$OUT/dex")" "$(win "$OUT/classes.jar")"
 
 echo "== [5] 组装 APK =="
 cp "$OUT/base.apk" "$OUT/unsigned.apk"

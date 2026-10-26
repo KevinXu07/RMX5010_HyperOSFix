@@ -28,12 +28,28 @@ public final class HookEntry implements IXposedHookLoadPackage {
             } catch (Throwable error) {
                 HookLog.error("finddevice hook installation failed", error);
             }
+        } else if ("com.miui.securitycenter".equals(param.packageName)
+                || "com.miui.securitymanager".equals(param.packageName)) {
+            HookLog.info("SecurityCenter entry, installing MiCharge/battery-time hooks");
+            try {
+                MiChargeHooks.install(param.packageName, param.processName,
+                        param.classLoader);
+            } catch (Throwable error) {
+                HookLog.error("MiCharge hook installation failed", error);
+            }
         } else if ("org.ifaa.aidl.manager".equals(param.packageName)) {
             HookLog.info("IFAA entry, installing fingerprint payment hooks");
             try {
                 IfaaHooks.install(param.classLoader);
             } catch (Throwable error) {
                 HookLog.error("IFAA hook installation failed", error);
+            }
+        } else if ("com.android.settings".equals(param.packageName)) {
+            HookLog.info("Settings entry, exposing stock pickup switch");
+            try {
+                SettingsHooks.install(param.classLoader);
+            } catch (Throwable error) {
+                HookLog.error("Settings hook installation failed", error);
             }
         } else if ("com.android.bluetooth".equals(param.packageName)) {
             HookLog.info("Bluetooth entry, installing LHDC V5 bridge");
