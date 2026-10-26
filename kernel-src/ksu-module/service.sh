@@ -50,6 +50,24 @@ while [ $i -lt 180 ]; do
 done
 [ "$applied" = 1 ] || log "gesture apply timed out"
 
+# ---- generic acc_udevid (Xiaomi account uDevId) ----
+# acc_udevid = "ud:" + b64url(sha1(account + fid))[:16], fid from the
+# FindDevice software credential. Runs after user unlock (CE DB appears)
+# and only inserts when the account extras are missing the value.
+(
+  while true; do
+    if [ -f /data/system_ce/0/accounts_ce.db ] && [ -f /mnt/vendor/persist/fdsd/dc ]; then
+      out=$(cd "$MODDIR" && CLASSPATH=udevgen.dex app_process /system/bin UdevGeneric \
+        /data/system_ce/0/accounts_ce.db /mnt/vendor/persist/fdsd/dc 2>&1)
+      case "$out" in
+        *inserted*|*updated*|*error*|*no-xiaomi*|*no-fid*|*no-json*)
+          log "udevid: $out" ;;
+      esac
+    fi
+    sleep 60
+  done
+) >> "$LOG" 2>&1 &
+
 # Watch for touchDaemon restarts (gesture state is per-process).
 (
   last_pid=

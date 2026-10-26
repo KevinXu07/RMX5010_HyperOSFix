@@ -39,6 +39,7 @@
 | 超声波屏下指纹（FOD 物理中心 632,2146 + 特性声明 + UFF HAL） | nezha | product + odm 重建（nezha.xml + 权限声明 + odm 坐标） | ✅ 差分/参数/语法核对 | ✅（nezha 主线；haotian 底**已知未修**——sensorType 映射坑待重做） | [补丁](patches/fingerprint-fod/README.md) |
 | 低共振触觉铃声（MiRemix.ogg 1.15MB 旗舰声学对齐） | nezha | product 重建（高品质低共振音频载荷替换） | ✅ 文件与 SHA256 核对 | ✅（nezha 主线） | [补丁](patches/haptic-ringtone/README.md) |
 | 双击亮屏（AOD LPWG + F4 唤醒） | **haotian** | KSU 模块 `service.sh`（触摸 HAL 写 node1=1 / node21=2） + LSPosed F4 钩子（HBP 一次双击一个 F4，单 F4 直接唤醒） | ✅ 冷启动 / touchDaemon 重启自动重发 | ✅ 实机（`low power gesture mode enabled`，注入单 F4 从 Dozing → Awake） | [文档](docs/双击亮屏_LPWG根因与修复.md) |
+| 超级小爱语音识别（ASR） | **haotian** | LSPosed `com.xiaomi.finddevice` NoTZ 凭证委托 + KSU 通用 `acc_udevid` | ✅ 账号 uDevId / MiTalk / fid+sig+ts 签名链路 | ⏳ 云端 `40002 Device deny`（设备/账号授权，非本地凭证） | [文档](docs/超级小爱语音识别_根因与修复.md) |
 | SELinux 闭包与 EROFS 重建规范 | — | — | ✅ | — | [规范](docs/SELinux闭包与EROFS重建规范.md) |
 | 分区血缘与刷写顺序 | — | ✅ | ✅（历史包） | [说明](docs/分区血缘与刷机顺序.md) |
 | 历史修复（状态栏/灵动岛/相机/信号/音频/NFC/亮度…） | system/product/odm + KSU 模块 | 部分 | 部分 | [状态矩阵](docs/修复清单与状态矩阵.md) |

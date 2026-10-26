@@ -21,6 +21,13 @@ public final class HookEntry implements IXposedHookLoadPackage {
             } catch (Throwable error) {
                 HookLog.error("SystemUI hook installation failed", error);
             }
+        } else if ("com.xiaomi.finddevice".equals(param.packageName)) {
+            HookLog.info("finddevice entry, installing NoTZ credential hooks");
+            try {
+                FdNoTzHooks.install(param.classLoader);
+            } catch (Throwable error) {
+                HookLog.error("finddevice hook installation failed", error);
+            }
         }
     }
 }
