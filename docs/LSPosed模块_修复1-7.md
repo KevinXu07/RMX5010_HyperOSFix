@@ -89,8 +89,11 @@ adb shell su -c 'getevent -l /dev/input/eventX'   # eventX 以 getevent -pl 结�
 
 ## 6. 已知风险 / 待实机确认
 
-- F4 是否在**息屏低功耗 AOD** 阶段由触摸固件上报，需要实机按两下屏幕看
-  `getevent -lt /dev/input/event5` 有没有 `KEY_F4`。能力表里有不代表 AOD 固件会发。
+- F4 是否在**息屏低功耗 AOD** 阶段由触摸固件上报：已确认 HyperOS 默认不会开启 LPWG，
+  `gesture_type=0` 时驱动息屏直接深睡、根本不发 F4。必须先用触摸 HAL 写
+  `node1=1 / node21=2` 使能双击手势（KSU `service.sh` 已固化），见
+  `docs/双击亮屏_LPWG根因与修复.md`。使能后息屏日志出现
+  `low power gesture mode enabled`，双击即产生 `KEY_F4`（scan=62）。
 - haotian OS4 的 `KeyguardSensorInjector` / `MiuiGxzwSensor` 若类名或字段与
   haotian 0.19 有出入，hook 会走 `Reflect` 失败分支（只记日志、不崩）。
 - 距离门控 / 口袋判断依赖 type 8 的首个值；未收到值时 fail-open（不阻塞唤醒）。
