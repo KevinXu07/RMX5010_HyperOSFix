@@ -184,8 +184,19 @@ settings get secure double_tap_power_button_gesture
 `DoubleClickActivity` → `CardPackageActivity` 的重定向，既没有处理 QAW
 检查，目标也是卡包页而不是 NFC 刷卡页。
 
-本仓库在 `SystemServerHooks` 里补了 `PhoneWindowManager` 双击 POWER
-检测：仅在 `launch_QAW_wallet`、锁屏/息屏时消费第二次 POWER，然后启动：
+本仓库**不拦截电源键事件流**。双击判定仍由 HyperOS 自己的
+`PowerKeyRule` / `CentralSurfaces` 完成，模块只替换两个“已经判定为双击”
+之后的落点：
+
+1. **解锁/亮屏路径**：SystemUI
+   `com.android.systemui.wallet.controller.QuickAccessWalletController.startGestureUiIntent(ActivityStarter)`
+   （由 `CentralSurfacesCommandQueueCallbacks.onPowerButtonLaunchGestureTriggered`
+   调用）→ `WalletHooks` 直接启动刷卡页；
+2. **锁屏/息屏或 Mi TSM 路径**：system_server
+   `com.miui.server.input.util.ShortCutActionsUtils.launchDefaultWallet()`
+   → `SystemServerHooks` 同样启动刷卡页。
+
+两条路径使用相同的 intent：
 
 ```text
 com.finshell.wallet/com.nearme.wallet.nfc.ui.NfcConsumeActivity
@@ -195,24 +206,36 @@ flags:  NEW_TASK | SINGLE_TOP | CLEAR_TOP | 0x00080000
 ```
 
 `NfcConsumeActivity` 的 manifest 已声明 `showWhenLocked=true`，extra 由
-COS-WALLET-FIX 的锁屏会话 hook 消费。
+COS-WALLET-FIX 的锁屏会话 hook 消费。不再经过
+`QuickAccessWalletClient`，因此 FinShell 没有 `QuickAccessWalletService`
+也不会出现 “Wallet service unavailable”。
 
-实测日志：
+早先版本直接 hook `PhoneWindowManager` 的双击 POWER，会与 Keyguard 的
+单击锁屏逻辑抢同一个按键流，实测表现为“先锁屏、刷卡页再弹出来”。该方案
+已完全移除；上述两个 hook 都不接触按键流，因此不会再把屏幕锁上。
+
+实测（解锁状态双击）：
 
 ```text
-RMX5010HyperOSFix: power double tap -> com.finshell.wallet/com.nearme.wallet.nfc.ui.NfcConsumeActivity
-ActivityManager: Start proc ... for top-activity {com.finshell.wallet/...NfcConsumeActivity}
+RMX5010HyperOSFix: wallet gesture -> FinShell swipe hook installed
+RMX5010HyperOSFix: wallet gesture -> com.finshell.wallet/com.nearme.wallet.nfc.ui.NfcConsumeActivity
 ```
 
-Activity 已创建并绘制，但当前设备未登录钱包、没有卡，FinShell 随后自己：
+`mDreamingLockscreen=false`，前台窗口和 top-resumed activity 都是
+`NfcConsumeActivity`，日志中不再出现 `QAWalletSClient: Wallet service
+unavailable` 或 `double_tap_power_wallet_not_supported`。界面停在“钱包 /
+充电卡 / 靠近读卡器”，即 NFC 刷卡页而不是卡包首页。
+
+息屏/锁屏状态双击也会启动同一 Activity；屏幕保持原有的锁屏状态，不会
+“先锁屏再弹页”。当前设备未登录钱包、没有卡，FinShell 随后自己：
 
 ```text
 NfcConsumeActivity: finishAndRemoveTask moveTaskToBack
 ```
 
-所以“能启动刷卡页”已经验证；**登录并添加一张卡后页面是否能常驻，还需要
-实机回归**。Settings 里的静态 footer 仍可能显示，但运行时双击已被本 hook
-接管，不再走 QAW。
+所以“双击进入刷卡页”已经验证；**登录并添加一张卡后页面是否能常驻，
+还需要实机回归**。Settings 里的 “当前的默认钱包应用不支持该手势” 是静态
+footer，仍可能显示；运行时双击已不走 QAW，不会再弹该提示。
 
 ## 5. 失败实验：KSU system overlay
 
