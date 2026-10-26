@@ -1,5 +1,9 @@
 # Sense 作为模块配置前端：评估与学习点
 
+状态（2026-10-27）：**已落地为“一个 KSU 模块 + Sense 作为唯一 LSPosed 模块”**。
+Sense 内已经包含 RMX5010 主 hooks 和 ColorOS 钱包 hooks，同时提供“移植修复”
+配置页。下面的评估保留为设计依据和冲突分析。
+
 结论：**能接，而且比在 LSPosed 模块里另做一套 UI 更合适**。但要把 Sense 定位成
 “控制面”，LSPosed/KSU 仍是“执行面”，不要互相复制逻辑。
 
@@ -128,4 +132,72 @@ sys.haptic.tap.* / sys.haptic.keyboard / ...
 4. 再考虑把 LHDC/IFAA 的详细诊断做成只读卡片。
 
 这样 Sense 是用户能看见、能调的入口；模块继续负责 hook、SELinux、HAL 和
-KSU 挂载，职责清晰，也不需要把 LSPosed 模块改成一个带 Activity 的应用。
+KSU 挂载，职责清晰。最终形态进一步把主 hooks 与钱包 hooks 并入 Sense，
+使 Sense 同时成为唯一的 LSPosed 模块。
+
+## 6. 实际落地结果（2026-10-27）
+
+### 6.1 模块结构
+
+```text
+KSU 模块   rmx5010_fod_bridge（显示名 RMX5010 HyperOS Fix，1.1.0）
+           FOD 桥、双击亮屏、触控采样率、音频 bind mount、
+           IFAA SELinux、钱包锁屏 AppOp、ctl.sh/status
+LSPosed    com.zephiel.sense（唯一模块）
+           17 个 RMX5010 Java hooks + 4 个钱包 Kotlin 文件
+           + assets/oplus-fwk.jar + jniLibs/arm64-v8a 三个 LHDC 库
+UI         Sense“移植修复”页
+```
+
+Sense 的 `SenseXposedEntry` 同时调用
+`local.mio.gt7profodfix.HookEntry` 和
+`local.mio.coloroswalletcompat.HookEntry`；钱包 hook 的
+`startupParam.modulePath` 指向 Sense APK，因此 `assets/oplus-fwk.jar`
+仍能被正确加载。`BluetoothHooks` 现在优先从 `com.zephiel.sense` 的
+`nativeLibraryDir` 加载 `libop13_lhdc_patch.so`，同时保留旧包名回退；
+`packaging.jniLibs.useLegacyPackaging=true` 保证 .so 被解压到 nativeLibraryDir。
+
+### 6.2 Sense“移植修复”页
+
+- 模块状态：KSU 版本、LSP 激活、触控/触感、钱包/刷卡权限、音频补丁、IFAA。
+- 触感强度：0.3–1.2，写 `op13_fix_haptic_scale`。
+- IFAA 型号：写 `op13_fix_ifaa_model`，并重启 IFAA 进程。
+- 测试锁屏刷卡页：重新授权 AppOp 10020 后启动 `NfcConsumeActivity`。
+- 重新应用模块配置：调用 KSU `ctl.sh reapply` 并刷新状态。
+
+### 6.3 冲突处理
+
+- **触控**：Sense 的 `TouchEnhanceManager` 在应用采样率时写
+  `op13_fix_touch_owner=sense` 并镜像 `op13_fix_touch_sampling_rate`；
+  KSU `touch_rate.sh` 看到 owner=sense 就不再写节点。手动 KernelSU action
+  会把 owner 改回 module。
+- **抬起亮屏**：`LiftToWakeManager` 读取
+  `pick_up_gesture_wakeup_mode`，用 ContentObserver 跟随系统开关；
+  系统关闭时立即注销传感器。
+- **触感**：Sense 原有的 `sys.haptic.*` 保留为实验性入口，默认关闭，
+  文案提示与模块 `op13_fix_haptic_scale` 二选一。
+
+### 6.4 实机验证
+
+- SukiSU 授权 Sense（UID 10318）后，`SenseService` 根命令可用；
+  `ctl.sh` 返回 `touch_owner=sense`、`wallet_appop=allow`、`audio_mounted=1`。
+- 重启后 LSPosed 日志显示所有进程都使用 `com.zephiel.sense`：
+  `system_server hooks installed`、`SystemUI hooks installed`、
+  `wallet gesture -> FinShell swipe hook installed`、
+  `ColorOSWalletCompat: ...`。
+- 解锁与锁屏双击电源键都进入 `NfcConsumeActivity`；锁屏页面覆盖 Keyguard，
+  没有 `PermissionDenied`/`QAWalletSClient`。
+- 旧模块 `local.mio.gt7profodfix` 和 `local.mio.coloroswalletcompat`
+  已卸载，避免重复 hook。
+
+### 6.5 回滚
+
+迁移前的 APK 和 LSPosed 配置备份在：
+
+```text
+E:\code\modify\haotian_work\sense_migration\
+/data/local/tmp/modules_config.db.before_sense
+```
+
+回滚时卸载 `com.zephiel.sense`，重装两个旧 LSPosed APK，恢复
+`modules_config.db.before_sense` 后重启。注意 Sense 卸载会清掉 Sense 设置。

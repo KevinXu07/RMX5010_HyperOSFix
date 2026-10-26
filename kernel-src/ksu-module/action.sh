@@ -10,6 +10,10 @@ log() {
 
 . "$MODDIR/touch_rate.sh"
 
+# A manual KernelSU action takes ownership back from Sense; Sense will take
+# it again the next time its TouchEnhanceManager applies a rate.
+settings put global "$TOUCH_OWNER_KEY" module
+
 current=$(touch_rate_value) || current=unset
 case "$current" in
   70) next=120 ;;

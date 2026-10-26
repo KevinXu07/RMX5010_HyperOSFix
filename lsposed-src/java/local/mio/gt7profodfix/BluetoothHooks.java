@@ -21,7 +21,12 @@ import de.robv.android.xposed.XC_MethodHook;
  * negative status (no patch) if the loaded libbluetooth_jni.so does not match.
  */
 final class BluetoothHooks {
-    private static final String MODULE_PACKAGE = "local.mio.gt7profodfix";
+    // Sense is the single LSPosed module now; keep the old package as a
+    // fallback so the same source still works with the legacy standalone APK.
+    private static final String[] MODULE_PACKAGES = {
+            "com.zephiel.sense",
+            "local.mio.gt7profodfix"
+    };
     private static final AtomicBoolean LIBRARY_LOADED = new AtomicBoolean();
     private static final AtomicBoolean APPLIED = new AtomicBoolean();
     private static final AtomicInteger ATTEMPTS = new AtomicInteger();
@@ -104,8 +109,18 @@ final class BluetoothHooks {
             if (LIBRARY_LOADED.get()) {
                 return;
             }
-            ApplicationInfo info = context.getPackageManager()
-                    .getApplicationInfo(MODULE_PACKAGE, 0);
+            ApplicationInfo info = null;
+            for (String packageName : MODULE_PACKAGES) {
+                try {
+                    info = context.getPackageManager()
+                            .getApplicationInfo(packageName, 0);
+                    break;
+                } catch (Throwable ignored) {
+                }
+            }
+            if (info == null) {
+                throw new IllegalStateException("no module package found");
+            }
             File library = new File(info.nativeLibraryDir, "libop13_lhdc_patch.so");
             if (!library.isFile()) {
                 throw new IllegalStateException("missing " + library);

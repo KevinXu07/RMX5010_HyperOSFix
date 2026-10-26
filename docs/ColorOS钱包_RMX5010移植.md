@@ -1,6 +1,11 @@
 # ColorOS 钱包（FinShell/TAS）RMX5010 移植记录
 
-状态（2026-10-26）：
+> 2026-10-27 迁移：钱包兼容 hooks 已经并入 **Sense（`com.zephiel.sense`）**，
+> Sense 是当前唯一的 LSPosed 模块；不再安装
+> `local.mio.coloroswalletcompat` 这个独立模块。下面关于 COS-WALLET-FIX
+> 的内容保留为来源、行为和 hook 的说明。
+
+状态（2026-10-27）：
 
 | 项目 | 状态 |
 |---|---|
@@ -31,13 +36,17 @@ ColorOS_Wallet_SystemInject_Release1.0.1_A17_noLSP_noSE.zip
 SHA-256 a8ecb7a9795c310440844c805d4344de35915211b3b824e88908f1cae033da56
 ```
 
-LSP 兼容模块：
+LSP 兼容模块来源（已合并进 Sense）：
 
 ```text
 COS_WALLET_FIX_v0.11.0.apk
 SHA-256 d798b634fa59499be92aa9c55ab2e98fa7c1890c27d431aa30035684bbacb347
-package local.mio.coloroswalletcompat
+原 package local.mio.coloroswalletcompat
 ```
+
+源码（MIT）位于 `E:\code\modify\COS-WALLET-FIX`，四个 Kotlin 文件已复制到
+Sense 的 `app/src/main/java/local/mio/coloroswalletcompat/`；`assets/oplus-fwk.jar`
+一并复制。Sense 的 `SenseXposedEntry` 同时分发 RMX 主 hooks 和钱包 hooks。
 
 ## 2. RMX 硬件条件
 
@@ -64,16 +73,16 @@ direct official routing commit status=0
 
 ## 3. 实际部署方式（已验证可用）
 
-当前采用**用户态安装 + LSPosed**，不是系统 App：
+当前采用**用户态安装 + Sense 作为唯一 LSPosed 模块**，不是系统 App：
 
-1. 安装 `COS_WALLET_FIX_v0.11.0.apk`。
+1. 安装 Sense APK（`out/Sense-RMX5010.apk`；内含 RMX 主 hooks 和钱包 hooks）。
 2. 依次安装五个钱包 APK（顺序不严格）：
    - FinShellWallet
    - TasWallet
    - UPTsmService
    - EidService
    - HeytapHTMS
-3. 在 LSPosed 中给 `local.mio.coloroswalletcompat` 注册作用域：
+3. 给 `com.zephiel.sense` 注册作用域：
 
 ```text
 android
@@ -85,15 +94,26 @@ com.finshell.wallet
 com.heytap.tas
 com.unionpay.tsmservice
 com.oplus.eid
-com.heytap.htms
 com.miui.tsmclient
+com.android.systemui
+com.android.bluetooth
+com.miui.securitycenter
+com.miui.securitymanager
+org.ifaa.aidl.manager
+com.xiaomi.finddevice
 ```
 
 4. **重启一次**，让 LSPosed 在 SystemUI/NFC/钱包进程启动前加载作用域。
 5. 打开“钱包”，同意隐私政策；HTMS 已安装后不会再弹“安装移动服务”。
 
-自动化脚本：`scripts/install_cos_wallet.sh`（会校验 SHA、安装 APK、注册模块和
-作用域；`--reboot` 可自动重启）。
+自动化脚本：
+
+```text
+bash scripts/build_sense_module.sh     # 构建 Sense LSPosed 模块 APK
+bash scripts/install_cos_wallet.sh     # 安装钱包 APK + Sense + scope + AppOp
+```
+
+`register_sense_lsposed.sh` 可单独重新注册 scope；`--reboot` 可自动重启。
 
 ### 3.1 作用域会被卸载清掉
 

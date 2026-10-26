@@ -166,6 +166,14 @@ NDK=/d/AndroidSDK/ndk-r28c/android-ndk-r28c/toolchains/llvm/prebuilt/windows-x86
   `libop13_lhdc_patch.so`、`liblhdcv5.so`、`liblhdcv5BT_enc.so` 由
   `build_apk.sh` 放入 APK 的 `lib/arm64-v8a/`；
   `AndroidManifest.xml` 设置 `android:extractNativeLibs="true"`。
+
+- 2026-10-27 合并到 Sense 后：三个 `.so` 已复制到
+  `Sense/app/src/main/jniLibs/arm64-v8a/`，Sense 的 `app/build.gradle`
+  设置 `packaging.jniLibs.useLegacyPackaging = true`；`BluetoothHooks`
+  优先从 `com.zephiel.sense` 的 `nativeLibraryDir` 加载
+  `libop13_lhdc_patch.so`，并保留 `local.mio.gt7profodfix` 回退。
+  JNI 符号仍匹配（Java 包名未改）。重启后实测 `status=7`、
+  `LHDC V5 software encoder interface installed`。
 - 作用域：LSPosed 需包含 `com.android.bluetooth`。本次用
   `tools/lspd`（app_process + SQLiteDatabase）写入：
 

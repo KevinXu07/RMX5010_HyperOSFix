@@ -1,6 +1,6 @@
 id=rmx5010_fod_bridge
-name=RMX5010 FOD Touch Bridge
-version=1.0.0
-versionCode=1
+name=RMX5010 HyperOS Fix
+version=1.1.0
+versionCode=2
 author=KevinXu07
-description=把 Oplus 触摸驱动发布的指纹区按下/抬起事件桥接成 KEY_F5 输入事件（FOD 灵动区域修复用）
+description=RMX5010 HyperOS 移植修复统一 Root 模块：FOD 触摸桥、双击亮屏、触控采样率、音频 appname 补丁、IFAA SELinux、钱包锁屏刷卡授权

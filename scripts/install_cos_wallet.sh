@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 # Install the ColorOS wallet suite (FinShell/TAS/HTMS/UPTsm/EidService) and the
-# COS-WALLET-FIX LSPosed module on RMX5010 HyperOS, then register the LSPosed
-# module/scope without the manager UI.
+# Sense APK (the single LSPosed module) on RMX5010 HyperOS, then register the
+# LSPosed scopes without the manager UI.
 #
 # The wallet APKs are third-party binaries from Maga-King/COS-WALLET-FIX
 # v0.11.0; this script downloads and SHA-256 verifies the original release.
+# Sense now contains both the RMX5010 compatibility hooks and the ColorOS
+# wallet compatibility hooks; the old local.mio.* LSPosed modules must not be
+# installed at the same time.
 #
 # Usage:
 #   bash scripts/install_cos_wallet.sh [--reboot] [--no-download]
 #
 # Env:
-#   ADB, SERIAL, WORK, WALLET_ZIP, LSP_APK
+#   ADB, SERIAL, WORK, WALLET_ZIP, SENSE_APK
 set -euo pipefail
+
+# Git Bash/MSYS otherwise rewrites /data/local/tmp/... into a Windows path.
+export MSYS2_ARG_CONV_EXCL='*'
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="${WORK:-$ROOT/work/cos_wallet}"
@@ -29,13 +35,19 @@ done
 
 WALLET_URL="https://github.com/Maga-King/COS-WALLET-FIX/releases/download/v0.11.0/ColorOS_Wallet_SystemInject_Release1.0.1_A17_noLSP_noSE.zip"
 WALLET_SHA="a8ecb7a9795c310440844c805d4344de35915211b3b824e88908f1cae033da56"
-LSP_URL="https://github.com/Maga-King/COS-WALLET-FIX/releases/download/v0.11.0/COS_WALLET_FIX_v0.11.0.apk"
-LSP_SHA="d798b634fa59499be92aa9c55ab2e98fa7c1890c27d431aa30035684bbacb347"
 WALLET_ZIP="${WALLET_ZIP:-$WORK/ColorOS_Wallet_SystemInject_Release1.0.1_A17_noLSP_noSE.zip}"
-LSP_APK="${LSP_APK:-$WORK/COS_WALLET_FIX_v0.11.0.apk}"
+SENSE_APK="${SENSE_APK:-$ROOT/out/Sense-RMX5010.apk}"
 
 ADB_CMD=("$ADB")
 [ -n "$SERIAL" ] && ADB_CMD+=(-s "$SERIAL")
+
+local_path() {
+  if command -v cygpath >/dev/null 2>&1; then
+    cygpath -w "$1"
+  else
+    printf '%s' "$1"
+  fi
+}
 
 sha_check() {
   local file="$1" expected="$2" got
@@ -54,13 +66,7 @@ if [ ! -f "$WALLET_ZIP" ]; then
   echo "download wallet inject zip ..."
   curl -L --retry 3 --retry-delay 5 -o "$WALLET_ZIP" "$WALLET_URL"
 fi
-if [ ! -f "$LSP_APK" ]; then
-  [ "$DOWNLOAD" = 1 ] || { echo "missing $LSP_APK" >&2; exit 1; }
-  echo "download COS wallet LSP module ..."
-  curl -L --retry 3 --retry-delay 5 -o "$LSP_APK" "$LSP_URL"
-fi
 sha_check "$WALLET_ZIP" "$WALLET_SHA"
-sha_check "$LSP_APK" "$LSP_SHA"
 
 rm -rf "$WORK/extract"
 mkdir -p "$WORK/extract"
@@ -77,7 +83,7 @@ for apk in \
   "$WORK/extract/system/app/UPTsmService/UPTsmService.apk" \
   "$WORK/extract/system/system_ext/app/EidService/EidService.apk"; do
   echo "-- $(basename "$apk")"
-  "${ADB_CMD[@]}" install -r "$apk"
+  "${ADB_CMD[@]}" install -r "$(local_path "$apk")"
 done
 
 echo "== allow FinShell swipe page over keyguard =="
@@ -88,16 +94,21 @@ echo "== allow FinShell swipe page over keyguard =="
 "${ADB_CMD[@]}" shell "cmd appops get com.finshell.wallet 10020" | grep -q 'allow' \
   || { echo "warning: show-when-locked app-op not applied" >&2; }
 
-echo "== install COS-WALLET-FIX LSP module =="
-"${ADB_CMD[@]}" install -r "$LSP_APK"
+if [ ! -f "$SENSE_APK" ]; then
+  echo "missing $SENSE_APK" >&2
+  echo "Build it first: bash scripts/build_sense_module.sh" >&2
+  exit 1
+fi
 
-echo "== register LSPosed module + scope =="
-"${ADB_CMD[@]}" push "$ROOT/tools/lspd/lspdscope.dex" /data/local/tmp/lspd_wallet.dex >/dev/null
-APK_PATH="$("${ADB_CMD[@]}" shell pm path local.mio.coloroswalletcompat | tr -d '\r' | sed -n 's/^package://p' | head -1)"
-[ -n "$APK_PATH" ] || { echo "LSP module not installed" >&2; exit 1; }
+echo "== install Sense (single LSPosed module) =="
+if ! "${ADB_CMD[@]}" install -r "$(local_path "$SENSE_APK")"; then
+  echo "Sense install failed. If the signature differs, uninstall" >&2
+  echo "com.zephiel.sense first; that clears Sense settings." >&2
+  exit 1
+fi
 
-SCOPES="android system com.android.nfc com.android.se com.android.settings com.finshell.wallet com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.heytap.htms com.miui.tsmclient"
-"${ADB_CMD[@]}" shell "su -c 'cd /data/local/tmp && CLASSPATH=lspd_wallet.dex app_process /system/bin LspdModule /data/adb/lspd/config/modules_config.db local.mio.coloroswalletcompat \"$APK_PATH\" $SCOPES'"
+echo "== register Sense LSPosed module + scope =="
+ADB="$ADB" SERIAL="$SERIAL" bash "$ROOT/scripts/register_sense_lsposed.sh"
 
 echo
 echo "Installed. Reboot is required before LSPosed can inject into the wallet processes."
@@ -106,6 +117,6 @@ if [ "$REBOOT" = 1 ]; then
 else
   echo "Run: adb reboot"
 fi
-echo "After reboot, open com.finshell.wallet, accept the privacy notice, and log in."
+echo "After reboot, open Sense, accept the privacy notice, and log in to FinShell."
 echo "If wallet packages were uninstalled/reinstalled, rerun this script and reboot:"
 echo "  LSPosed prunes scope rows when the package is absent."

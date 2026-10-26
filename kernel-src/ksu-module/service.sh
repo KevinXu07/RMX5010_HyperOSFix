@@ -169,6 +169,7 @@ apply_ifaa_policy
   else
     log "wallet show-when-locked: package absent"
   fi
+  sh "$MODDIR/ctl.sh" status-file >> "$LOG" 2>&1
 ) >> "$LOG" 2>&1 &
 
 # Watch for touchDaemon restarts (gesture state is per-process).

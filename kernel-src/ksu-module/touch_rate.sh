@@ -7,10 +7,23 @@
 # or tap the module action in KernelSU (action.sh cycles the value).
 
 TOUCH_RATE_KEY=op13_fix_touch_sampling_rate
+TOUCH_OWNER_KEY=op13_fix_touch_owner
 TOUCH_RATE_NODE=182
 TOUCH_HIDL=/odm/bin/touchHidlTest
 
+touch_owner_value() {
+  value=$(settings get global "$TOUCH_OWNER_KEY" 2>/dev/null)
+  case "$value" in
+    ""|null) echo module ;;
+    *) echo "$value" ;;
+  esac
+}
+
 touch_rate_value() {
+  # Sense owns the node while its TouchEnhanceManager is active. It mirrors
+  # the effective rate into TOUCH_RATE_KEY, so the module must not also write
+  # the node on screen transitions.
+  [ "$(touch_owner_value)" = "sense" ] && return 1
   value=$(settings get global "$TOUCH_RATE_KEY" 2>/dev/null)
   case "$value" in
     70|120|180|240|360) echo "$value"; return 0 ;;
