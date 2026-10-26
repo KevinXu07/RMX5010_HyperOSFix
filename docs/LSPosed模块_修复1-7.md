@@ -94,6 +94,9 @@ adb shell su -c 'getevent -l /dev/input/eventX'   # eventX 以 getevent -pl 结�
   `node1=1 / node21=2` 使能双击手势（KSU `service.sh` 已固化），见
   `docs/双击亮屏_LPWG根因与修复.md`。使能后息屏日志出现
   `low power gesture mode enabled`，双击即产生 `KEY_F4`（scan=62）。
+  注意：RMX5010 的 HBP 固件**一次双击只发一个 F4**（dmesg `Gesture ID=1`），
+  因此钩子已改为单 F4 直接唤醒，且使用 `PowerManager.wakeUp()`（`wakeUpFromWakeKey()`
+  对该事件无效）。
 - haotian OS4 的 `KeyguardSensorInjector` / `MiuiGxzwSensor` 若类名或字段与
   haotian 0.19 有出入，hook 会走 `Reflect` 失败分支（只记日志、不崩）。
 - 距离门控 / 口袋判断依赖 type 8 的首个值；未收到值时 fail-open（不阻塞唤醒）。

@@ -38,6 +38,10 @@ final class SystemServerHooks {
     private static final int AOD_SINGLE_TAP_KEY_CODE = 354;
     private static final long DOUBLE_TAP_WINDOW_MS = 280L;
     private static final long DOUBLE_TAP_COOLDOWN_MS = 500L;
+    // RMX5010 的 synaptics_hbp 固件在识别出双击后只上报一个 KEY_F4
+    // （dmesg: "Gesture ID=1"），而一加 13 的面板是每次触摸上报一个 F4。
+    // 因此这里不能等 280ms 内的第二个 F4，单个 F4 就代表完整的双击手势。
+    private static final boolean F4_SINGLE_GESTURE_WAKE = true;
     private static final long ROOT_BOOTSTRAP_DELAY_MS = 12_000L;
     private static final long ROOT_BOOTSTRAP_FINAL_DELAY_MS = 40_000L;
     private static final String MODULE_PACKAGE = "local.mio.op13hyperosfix";
@@ -491,6 +495,13 @@ final class SystemServerHooks {
                 if (isInteractive() || now < cooldownUntil) {
                     return;
                 }
+                if (F4_SINGLE_GESTURE_WAKE) {
+                    cooldownUntil = now + DOUBLE_TAP_COOLDOWN_MS;
+                    if (pocketGate.allowsWake()) {
+                        wakeFully(event);
+                    }
+                    return;
+                }
                 if (pendingSingle != null && now <= pendingDeadline) {
                     handler.removeCallbacks(pendingSingle);
                     pendingSingle = null;
@@ -531,6 +542,20 @@ final class SystemServerHooks {
         }
 
         private void wakeFully(KeyEvent event) {
+            // RMX5010 的 HBP 固件在 doze 下只上报一个 F4，wakeUpFromWakeKey()
+            // 会把它当成非唤醒键直接返回，这里直接走 PowerManager.wakeUp()。
+            try {
+                if (powerManager != null) {
+                    Method method = Reflect.findCompatibleMethod(powerManager.getClass(), "wakeUp", 3);
+                    if (method != null) {
+                        method.invoke(powerManager, SystemClock.uptimeMillis(), 0,
+                                "OP13HyperOSFix:F4_DOUBLE_TAP");
+                        return;
+                    }
+                }
+            } catch (Throwable error) {
+                HookLog.error("direct F4 wake failed", error);
+            }
             try {
                 Method method = Reflect.findMethod(pwm.getClass(), "wakeUpFromWakeKey", KeyEvent.class);
                 if (method != null) {
@@ -547,14 +572,6 @@ final class SystemServerHooks {
                     if (method != null) {
                         method.invoke(policy, 0, event.getEventTime(), event.getKeyCode(), true,
                                 event.getFlags());
-                        return;
-                    }
-                }
-                if (powerManager != null) {
-                    Method method = Reflect.findCompatibleMethod(powerManager.getClass(), "wakeUp", 3);
-                    if (method != null) {
-                        method.invoke(powerManager, SystemClock.uptimeMillis(), 0,
-                                "OP13HyperOSFix:F4_DOUBLE_TAP");
                     }
                 }
             } catch (Throwable error) {

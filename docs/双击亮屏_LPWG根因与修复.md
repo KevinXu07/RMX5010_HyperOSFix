@@ -119,23 +119,35 @@ Framework 侧免手戳验证（evdev 注入，Linux `KEY_F4 = 62`）：
 
 ```sh
 su -c 'input keyevent 223'          # 进 Dozing
-# 连续注入两次 F4 DOWN/UP，间隔 < 280 ms
-sendevent /dev/input/event5 1 62 1; sendevent /dev/input/event5 0 0 0
-sendevent /dev/input/event5 1 62 0; sendevent /dev/input/event5 0 0 0
-sleep 0.12
+# 只需注入一次 F4 DOWN/UP
 sendevent /dev/input/event5 1 62 1; sendevent /dev/input/event5 0 0 0
 sendevent /dev/input/event5 1 62 0; sendevent /dev/input/event5 0 0 0
 ```
 
-结果：`mWakefulness` 由 `Dozing` → `Awake`；LSPosed 日志：
+结果（2026-10-26 10:42 最终验证）：`mWakefulness` 由 `Dozing` → `Awake`，LSPosed 日志：
 
 ```text
 OP13HyperOSFix: F4 event action=0 scan=62 repeat=0
 OP13HyperOSFix: F4 event action=1 scan=62 repeat=0
 ```
 
-注意：LSPosed 钩子按“双击”语义工作——`DOUBLE_TAP_WINDOW_MS = 280`，
-窗口内第二次 F4 DOWN 才走 `wakeFully()`；单次 F4 只走 AOD 单击路径，不会点亮。
+### 5.1 为什么是单次 F4（2026-10-26 修正）
+
+实机 `dmesg` 证明 HBP 固件识别出双击后上报的是 **一个** 手势包：
+
+```text
+syna_tcm_parse_touch_report: Gesture ID=1, pwr_state = 2, sub_pwr_state = 5
+```
+
+一加 13 的面板是每次触摸上报一个 F4，所以旧钩子要求“280 ms 内的第二个 F4”才唤醒；
+在 RMX5010 上每次双击只来一个 F4，旧逻辑永远只走 AOD 单击分支，不会点亮。
+
+修正（`SystemServerHooks`）：
+
+- `F4_SINGLE_GESTURE_WAKE = true`：非交互状态下单个 F4 即视为完整双击，直接唤醒。
+- `wakeUpFromWakeKey()` 对这种未标记为唤醒键的 F4 会直接返回（实测 `interactive=false`），
+  因此改为直接调用 `PowerManager.wakeUp(...)`；唤醒后 `interactive=true`。
+- 口袋门控（proximity）和 500 ms 冷却保持不变。
 
 ## 6. 风险与备注
 
