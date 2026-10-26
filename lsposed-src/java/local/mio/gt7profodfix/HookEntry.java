@@ -6,7 +6,10 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 public final class HookEntry implements IXposedHookLoadPackage {
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam param) {
-        if ("android".equals(param.packageName) && "android".equals(param.processName)) {
+        boolean systemServer = "android".equals(param.processName)
+                && ("android".equals(param.packageName) || "system".equals(param.packageName));
+        if (systemServer) {
+            HookLog.info("system_server entry via pkg=" + param.packageName);
             try {
                 SystemServerHooks.install(param.classLoader);
             } catch (Throwable error) {

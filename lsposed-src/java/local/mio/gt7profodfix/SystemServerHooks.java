@@ -201,6 +201,7 @@ final class SystemServerHooks {
                             return;
                         }
                         if (isFodBridgeEvent(event)) {
+                            HookLog.info("F5 bridge event action=" + event.getAction());
                             dispatchFodEvent(param.thisObject, event);
                             param.setResult(0);
                             return;
@@ -208,6 +209,9 @@ final class SystemServerHooks {
                         if (!isTouchPanelF4(event)) {
                             return;
                         }
+                        HookLog.info("F4 event action=" + event.getAction()
+                                + " scan=" + event.getScanCode()
+                                + " repeat=" + event.getRepeatCount());
                         F4State state = stateFor(param.thisObject);
                         state.handle(event);
                         param.setResult(0);
