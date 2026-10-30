@@ -759,3 +759,27 @@ cameraserver 同时打印 `DataSpace override not allowed for format 0x23`。
 注意：专业模式现在走 `common` APS pipeline，而不是原厂专用的
 `professionalFull` pipeline；ISO/快门/EV/WB 等手动 metadata 仍随请求
 传入，但原厂 professionalFull 的专属后处理在当前移植上不可用。
+
+### 13.11 相册缩略图与剩余子模式（2026-10-31）
+
+相册缩略图已修复：相机 `GalleryHelper` 用 `yn.h1.a()` 返回的包名
+`setPackage()`；原来的 `com.coloros.gallery3d` 只有空 stub。Sense 新增
+`CameraGalleryHooks`，在 `com.oplus.camera` 进程内把 `yn.h1.a()` 的
+返回值改为 `com.miui.gallery`。实测点击缩略图后：
+`topResumedActivity=com.miui.gallery/.activity.ExternalPhotoPageActivity`，
+系统相册正常打开最新照片/视频。
+
+剩余限制：
+
+- 超级文本：进入模式时 `DocDetector.<clinit>` 加载
+  `libXDocProcessSDK-jni.qti.so` 返回 `JNI_ERR`。设备只有通用
+  `libXDocProcessSDK-jni.so`，用 `.qti` 别名加载时 `JNI_OnLoad` 拒绝；
+  这是 OCR SDK 的 Qualcomm 专用变体缺失，当前未修。
+- 延时摄影：录制能开始，但停止时 `MediaRecorder stop failed: -1007`，
+  `VCP_RECORD_FILE_IS_INVALID`，pending MP4 被删除；需要进一步查
+  timelapse 编码器/视频服务。
+- 全景：UI 正常，实际拍摄需要平移手机，桌面平放条件下未完成。
+- 星空/移轴：未逐项实拍验收。
+
+已验证可用：0.6x/1x/2x/3x/6x、前摄、后摄人像、夜景、街拍、高像素、
+电影、多景录像、慢动作、长曝光、专业模式、普通录像、相册缩略图。
