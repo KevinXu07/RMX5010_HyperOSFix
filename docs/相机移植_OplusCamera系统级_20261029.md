@@ -852,8 +852,25 @@ OCAM_CaptureFailInfoUtil: handleMessage, msg: 1
 尝试过 `ApsDataConvert.getApsModeName`、`ApsParameters.set`、
 `MetaItemInfo.setParameter`、`CameraRequestTag`/`ApsRequestTag`
 把 `star_capture_mode`/`starry` 改成 `common`，hook 均安装成功，
-但原生 trigger 仍按 starry 查找，未生成 JPEG。需要原厂星空 APS
-配置/trigger 节点，Java 层无法补齐。
+但原生 trigger 仍按 starry 查找。
+
+进一步从 16.0.7.201 `payload.bin` 提取 `odm`（2.7GB erofs），
+用设备自带 `fsck.erofs --extract` 解出 `/etc/camera/config`：
+
+- 201 与设备的 `oplus_camera_aps_config`（58,520 B，SHA-256
+  `30db66c2…`）和 `camera_unit_feature_config.protobuf`（39,520 B，
+  `b6905094…`）完全一致；
+- `camera_unit_config` 语义 diff 只有本移植的 `hyper_lapse` 补丁和
+  `usecase_info.sat_photo_case` 少两项 `capture_raw10_fullsize`；
+  补回这两项后星空仍报 `captureAlgoTriggerMode nullptr`。
+
+因此星空 pipeline 不在 ODM 配置里，而在原生 APS 扩展
+（`libcsextimpl`/`libAPSClient`/`libAlgoInterface`）中。移植使用的
+OS4 `libcsextimpl.so`（SAT/zoom 需要）没有星空 pipeline；201 的
+`libcsextimpl.so` 在 OS4 上返回 null factory，直接替换会破坏 SAT。
+需要把 201 的星空 pipeline 合并进 OS4 扩展（native 逆向），不是
+增加 JSON/ODM 节点能解决的。设备已恢复发布配置
+（`camera_unit_config` SHA-256 `de4293c3…`）。
 
 多景录像仍不可用。录制能开始并生成
 `.pending-<ts>-VID....mp4`，但文件只有 `ftyp`/`mdat`、没有 `moov`，
