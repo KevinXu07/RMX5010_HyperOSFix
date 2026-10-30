@@ -891,6 +891,32 @@ APS extension `91eb27cb…`、APS client `b6669463…`）后，星空仍报
 方向，不是 ODM/JSON 节点能解决的。设备已恢复发布配置
 （`camera_unit_config` SHA-256 `de4293c3…`）。
 
+### 13.15 多景录像 IVideoService stub 实验（2026-10-31）
+
+按计划尝试注册 Xiaomi vendor AIDL stub：
+
+- 在 `system_ext_service_contexts` 补
+  `vendor.xiaomi.hardware.videoservice.IVideoService/default u:object_r:hal_videoservice_service:s0`；
+- 模块 sepolicy 增加
+  `allow system_server hal_videoservice_service service_manager { add find }`
+  和 `binder { call transfer }`；
+- `VideoServiceStub` 用纯 `Binder` 实现 V12 事务码，去掉
+  `markVintfStability`（否则报 `VINTF declaration error`），在
+  system_server 注册；`service list` 出现
+  `vendor.xiaomi.hardware.videoservice.IVideoService/default`。
+- 相机 native media stack 实际调用：`loadFile(3)`、
+  `registerListener(11)`、`reportCodecStatus(2)`、
+  `reportCodecStatusV2(35)`、`clearCodecInfo(20)`、
+  `releaseListener(12)`；stub 在 stop 时回调 listener 的
+  `onStopFrameCapture(3)`/`onReleaseFrameCapture(4)`。
+- 结果：多景仍生成 `.pending-...mp4`（780,224 B），只有
+  `ftyp`/`mdat`、没有 `moov`，不可播放；默认 stub 的
+  codec/resource 语义不足以让原生 muxer finalize。
+
+已恢复 1.5.6 正式模块/Sense APK；普通拍照
+`IMG20261031074042.jpg`（2,563,505 B）`onApsJpegArrived`/
+`completeCapture success`/`Picture Save End` 正常，设备锁屏。
+
 多景录像仍不可用。录制能开始并生成
 `.pending-<ts>-VID....mp4`，但文件只有 `ftyp`/`mdat`、没有 `moov`，
 是不可播放的裸流；停止时日志：
