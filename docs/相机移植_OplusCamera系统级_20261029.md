@@ -874,11 +874,22 @@ OCAM_CaptureFailInfoUtil: handleMessage, msg: 1
 （`Permission denied`），未能在进程内测试；其大小/哈希与设备版本
 不同。
 
-结论：star pipeline 不在 ODM 配置，也不在 201 stock
-`libcsextimpl.so` 的可执行路径中；可能在 201 `libAPSClient`/
-`libsatbridge` 或独立 star lib。需要 native 合并/完整 201 栈，
-且与 OS4 SAT 扩展冲突，不是增加 JSON/ODM 节点能解决的。设备已
-恢复发布配置（`camera_unit_config` SHA-256 `de4293c3…`）并锁屏。
+进一步测试 201 完整 system_ext APS 栈（csextimpl `6ed9e214…`、
+APS extension `91eb27cb…`、APS client `b6669463…`）后，星空仍报
+`captureAlgoTriggerMode nullptr`。再把 201 `/odm/lib64` 的
+`libAlgoInterface.so`（`3ab2dc1b…`）/`libAlgoProcess.so`
+（`da069a1a…`）bind mount 上去，`libAlgoProcess.so` 在 sphal
+命名空间 dlopen 失败：
+`library "android.hardware.graphics.common-V7-ndk.so" not found`，
+相机在 `libAPSClient-cmd-jni` createClient 处 SIGSEGV；已回退到
+1.5.6 正式模块。回退后普通拍照 `IMG20261031071156.jpg`
+（2,566,927 B）`onApsJpegArrived`/`completeCapture success`/
+`Picture Save End` 正常，设备锁屏。
+
+结论：星空需要 201 完整 native 栈及其 `graphics.common-V7-ndk`
+依赖，简单替换 201 库会崩溃；native 合并/补齐 V7 依赖是继续
+方向，不是 ODM/JSON 节点能解决的。设备已恢复发布配置
+（`camera_unit_config` SHA-256 `de4293c3…`）。
 
 多景录像仍不可用。录制能开始并生成
 `.pending-<ts>-VID....mp4`，但文件只有 `ftyp`/`mdat`、没有 `moov`，
