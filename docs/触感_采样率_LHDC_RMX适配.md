@@ -100,12 +100,40 @@ scale=0.8 -> 0.74
 
 ### 1.5 仍未做的部分
 
-- MIUI_SDK 的 75 ms 键盘 Step 本身还没有按 RMX 马达缩短。要改波形需要在
-  `VibratorManagerService` 的 usage 边界重建 `VibrationEffect`，属于下一步
-  手感调参；当前先用强度系数解决“过冲/过强”。
 - OP13 的全局触感滑条、MiRemix、视频触感、通知长按/清理/指纹成功失败等
   RTP 功能依赖 `IOplusVibrator` 和小米 RTP 资源，在 RMX 上不可直接复用。
 - 指纹成功/失败触感需要至少一枚已录指纹才能实机验证。
+
+### 1.6 2026-10-30：键盘/触控 Step 波形修正（参考一加13）
+
+问题不是振幅，而是 HyperOS/MIUI_SDK 键盘发出 **75ms 持续 Step**。LRA
+被持续驱动时听起来像转子马达，无论强度怎么调都不线性。
+
+参考 `os4/external/OP13HyperOSFix/upstream/oneplus13_hyper_haptics_0.8.8`
+的做法：在 system_server 下发 HAL 前改写效果，而不是只改振幅。RMX 没有
+OP13 的 `IOplusVibrator`/RTP 资源，但可以直接把短 Step 改成一次短脉冲：
+
+- `HapticHooks.hookTouchStepEffects()` hook
+  `VibratorManagerService.vibrateInternal`；
+- 对总时长 **30–90ms** 的 Step（键盘 75ms、设置预览 45/67/79ms）
+  替换为 `VibrationEffect.createOneShot(12, DEFAULT_AMPLITUDE)`；
+- 振幅仍由 `VibrationScaler` 和 `op13_fix_haptic_scale` 缩放；
+- 时长只按效果时长过滤，不依赖 OEM 的 usage 编号（OS4 的 usage 4
+  在 dumpsys 中显示为 “unknown usage”）。
+
+实测：
+
+```text
+cmd vibrator_manager synced -f -B -u 4 oneshot 75 255
+→ played: Step=12ms
+→ RMX5010HyperOSFix: haptic touch step 75ms -> 12ms click (usage=4)
+```
+
+Sense APK 已重新构建并安装，system_server 日志：
+`haptic compatibility active: map=1 info=1 scale=1 click=1`。
+实际键盘手感需要用户打字确认；若偏弱可把 12ms 调到 15–20ms，若仍偏硬则
+继续缩短或改用 HAL 的 `effect_2/3.bin` 预置波形。
+
 
 ## 2. 触控采样率（已修复）
 

@@ -1,8 +1,10 @@
 package local.mio.gt7profodfix;
 
 import android.content.Context;
+import android.os.CombinedVibration;
 import android.os.SystemClock;
 import android.os.VibrationAttributes;
+import android.os.VibrationEffect;
 import android.util.SparseBooleanArray;
 
 import de.robv.android.xposed.XC_MethodHook;
@@ -42,13 +44,83 @@ final class HapticHooks {
         int mapHooks = hookEffectTranslation(loader);
         int infoHooks = hookSupportedEffects(loader);
         int scaleHooks = hookScaleFactor(loader);
-        if (mapHooks == 0 || infoHooks == 0 || scaleHooks == 0) {
+        int clickHooks = hookTouchStepEffects(loader);
+        if (mapHooks == 0 || infoHooks == 0 || scaleHooks == 0 || clickHooks == 0) {
             HookLog.info("haptic compatibility incomplete: map=" + mapHooks
-                    + " info=" + infoHooks + " scale=" + scaleHooks);
+                    + " info=" + infoHooks + " scale=" + scaleHooks
+                    + " click=" + clickHooks);
         } else {
             HookLog.info("haptic compatibility active: map=" + mapHooks
-                    + " info=" + infoHooks + " scale=" + scaleHooks);
+                    + " info=" + infoHooks + " scale=" + scaleHooks
+                    + " click=" + clickHooks);
         }
+    }
+
+    /**
+     * HyperOS sends the Xiaomi keyboard/settings feedback as a 75-79 ms Step.
+     * A sustained Step on this LRA reads as a rotor-like buzz instead of a
+     * crisp click. Rewrite short touch Steps to a 12 ms one-shot before the
+     * HAL sees them; VibrationScaler still applies the user's strength.
+     */
+    private static int hookTouchStepEffects(ClassLoader loader) {
+        Class<?> service = Reflect.findClass(loader,
+                "com.android.server.vibrator.VibratorManagerService");
+        if (service == null) {
+            HookLog.info("VibratorManagerService missing; touch click rewrite skipped");
+            return 0;
+        }
+        return Reflect.hookNamedMethods(service, "vibrateInternal",
+                new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) {
+                        int effectIndex = -1;
+                        int attrsIndex = -1;
+                        int reasonIndex = -1;
+                        for (int i = 0; i < param.args.length; i++) {
+                            Object arg = param.args[i];
+                            if (arg instanceof CombinedVibration) {
+                                effectIndex = i;
+                            } else if (arg instanceof VibrationAttributes) {
+                                attrsIndex = i;
+                            } else if (arg instanceof String) {
+                                reasonIndex = i;
+                            }
+                        }
+                        if (effectIndex < 0 || attrsIndex < 0) {
+                            return;
+                        }
+                        VibrationAttributes attrs =
+                                (VibrationAttributes) param.args[attrsIndex];
+                        String reason = reasonIndex >= 0
+                                ? (String) param.args[reasonIndex] : null;
+                        int usage = attrs.getUsage();
+                        HookLog.once("haptic-vibrate-internal-seen",
+                                "vibrateInternal seen usage=" + usage
+                                        + " reason=" + reason);
+                        try {
+                            CombinedVibration original =
+                                    (CombinedVibration) param.args[effectIndex];
+                            Object rawDuration =
+                                    XposedHelpers.callMethod(original, "getDuration");
+                            long duration = rawDuration instanceof Number
+                                    ? ((Number) rawDuration).longValue() : -1L;
+                            if (duration < 30 || duration > 90) {
+                                return;
+                            }
+                            VibrationEffect click = VibrationEffect.createOneShot(
+                                    12, VibrationEffect.DEFAULT_AMPLITUDE);
+                            param.args[effectIndex] =
+                                    CombinedVibration.createParallel(click);
+                            HookLog.once("haptic-touch-step-" + duration,
+                                    "haptic touch step " + duration
+                                            + "ms -> 12ms click (usage="
+                                            + usage + ")");
+                        } catch (Throwable error) {
+                            HookLog.once("haptic-touch-step-error",
+                                    "haptic touch step rewrite failed: " + error);
+                        }
+                    }
+                });
     }
 
     /**
