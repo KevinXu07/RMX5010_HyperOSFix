@@ -735,21 +735,25 @@ cameraserver 同时打印 `DataSpace override not allowed for format 0x23`。
 所以 `APSProcPipeline.getPipelinesList()` 为空、`captureAlgoTriggerMode`
 为 nullptr，APS 永远不回调。
 
-修复：patch `com.oplus.camera.unit.sdk.jar` 的 `ApsDataConvert`，让
-`professional_mode` 直接返回 `common`（普通照片模式使用的 APS capture
-mode）。只改专业模式映射，不影响 photo/night/portrait 等模式。
+修复：最终采用 **Sense LSPosed hook**，在 `com.oplus.camera` 进程内 hook
+`com.oplus.ocs.camera.consumer.ApsDataConvert.getApsModeName(String,int)`；
+当 modeName 为 `professional_mode` 时把结果改为 `common`（普通照片模式
+使用的 APS capture mode）。**原厂 `unit.sdk.jar` 保持不变**，因此不会
+影响慢动作和其他 APS 模式。
 
-- 模块内路径：`system/system_ext/framework/com.oplus.camera.unit.sdk.jar`
-- SHA-256：`e3924a985ec7a3b84b311655bee7aa20909e1a503c833154afad5445fb0e32e7`
-- 原厂 jar 备份：`/data/local/tmp/unit.sdk.orig.jar`（本机），仓库源文件
-  可用 16.0.7.201 原包恢复。
+- 原厂 jar SHA-256：`833fecd0e5613ecbd9e87cab2d6afa3eac2ce6062ebb133101b09697482209b5`
+- Sense 新增 `CameraProModeHooks`；LSPosed 作用域需包含 `com.oplus.camera`
+- 曾经尝试直接 patch jar 的 `ApsDataConvert`，专业模式能保存但慢动作
+  MediaRecorder stop 失败，已回退，改为上述运行时 hook。
 
-实测：
+实测（原厂 jar + hook）：
 
-- 专业模式：`IMG20261031043042.jpg`，1,264,390 B，3072×4096；
+- 专业模式：`IMG20261031043941.jpg`，1,590,484 B，3072×4096；
   `onApsJpegArrived`、`completeCapture success: true`、
   `Picture Save End` 全部出现。
-- 回归：普通照片 2x `IMG20261031043123.jpg` 正常保存；变焦/夜景/人像等
+- 慢动作：`VID20261031044023.mp4`，3,130,397 B，
+  `Video Flie Save End` + MediaStore 扫描成功。
+- 普通照片 2x `IMG20261031043123.jpg` 正常保存；变焦/夜景/人像等
   映射未改动。
 
 注意：专业模式现在走 `common` APS pipeline，而不是原厂专用的

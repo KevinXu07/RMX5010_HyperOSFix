@@ -65,6 +65,11 @@ public final class HookEntry implements IXposedHookLoadPackage {
             } catch (Throwable error) {
                 HookLog.error("OplusCamera slow-video hook installation failed", error);
             }
+            try {
+                CameraProModeHooks.install(param.classLoader);
+            } catch (Throwable error) {
+                HookLog.error("OplusCamera professional-mode hook installation failed", error);
+            }
         }
     }
 }
