@@ -58,6 +58,13 @@ public final class HookEntry implements IXposedHookLoadPackage {
             } catch (Throwable error) {
                 HookLog.error("Bluetooth LHDC hook installation failed", error);
             }
+        } else if ("com.oplus.camera".equals(param.packageName)) {
+            HookLog.info("OplusCamera entry, installing slow-video surface hooks");
+            try {
+                CameraSlowMotionHooks.install(param.classLoader);
+            } catch (Throwable error) {
+                HookLog.error("OplusCamera slow-video hook installation failed", error);
+            }
         }
     }
 }

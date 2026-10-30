@@ -655,3 +655,50 @@ OCAM_ZoomUIManager: CameraTest switch to wide camera
   依赖 stock `libcameraservice` 的工厂初始化，和 OS4 cameraserver 混用会返回
   NULL；保持 OS4 `libcsextimpl.so`（`6995cba2...`）+ 上述依赖即可。
 
+
+### 13.8 慢动作与更多模式验收（2026-10-31）
+
+慢动作的阻塞点与变焦不同：应用为 1080p240 创建 constrained high-speed
+session 时，预览 surface 是 `format 35 (YUV_420_888)`、usage `0x103`；
+OS4 框架的 `SurfaceUtils.checkHighSpeedSurfaceFormat` /
+`checkConstrainedHighSpeedSurfaces` 认为它既不是 preview 也不是 hardware
+video encoding surface，在 session 发出前就抛 `IllegalArgumentException`。
+cameraserver 同时打印 `DataSpace override not allowed for format 0x23`。
+
+修复分两处，均为单变量：
+
+1. Sense LSPosed 模块新增 `CameraSlowMotionHooks`，仅在
+   `com.oplus.camera` 进程内把 `SurfaceUtils` 的两个高速 session 检查
+   no-op；保留应用原本的 high-speed session 和 240fps 请求。
+   需要在 LSPosed 管理器里把 Sense 的作用域加上 `com.oplus.camera`。
+2. `camera/cameraserver` 打三处小补丁（SHA-256
+   `2c2d3fcd4f94ef98f9af2d977721933edd4d6de660c1c3f0fef25b131b35ce18`）：
+   跳过 DataSpace override 的错误分支、把该路径的 -22 错误码置 0、
+   忽略累计错误标志。原始 cameraserver 仍保留在仓库历史/备份中。
+
+实测：
+
+- 慢动作：`VID20261031034604.mp4`，3,152,505 B，ISO MP4，mvhd 时长
+  31.55s，1920×1080 HEVC；4 秒拍摄按 240fps 录制成 8 倍慢放。
+- 夜景：`IMG20261031034855.jpg`，1,840,567 B，`mCapMode: night`，
+  `completeCapture success`。
+- 街拍：`IMG20261031034825.jpg`，1,787,455 B，`mCapMode: street`。
+- 高像素：`IMG20261031035051.jpg`，4,298,241 B，6144×8192（50MP），
+  `mCapMode: highDefinition`。
+- 电影：`VID20261031035201.mp4`，1,452,976 B，MediaStore 扫描成功。
+- 多景录像：`.pending-1793994765-VID20261031035245.mp4`，1,848,985 B，
+  有效 MP4；停止后 7 秒内未完成 MediaStore 重命名，仍在 pending。
+- 后摄人像：`IMG20261031034930.jpg`，2,788,119 B。
+- 专业模式：UI 打开，快门发出 `mRequestNum: 4` 的 captureBurst，
+  但 APS 保存失败：`APP_saveFail` / `thumbnail_category_fail` /
+  `version_aps_not_support`；需要继续补 ProfessionalMode 的 APS 配置。
+- 全景：UI 正常显示方向箭头和“点击箭头可切换拍摄方向”，
+  拍摄需要实际平移，桌面平放条件下未完成。
+- 相册缩略图：`com.coloros.gallery3d` stub 只有 manifest、没有
+  `classes.dex`，activity 是空的 `android.app.Activity`；点击缩略图
+  不会打开查看器。系统里已有 `com.miui.gallery`，但相机 intent 固定
+  `setPackage("com.coloros.gallery3d")`，要修需要替换 stub 为转发
+  activity 或改相机的 gallery package，当前未做。
+
+已验证可用：0.6x/1x/2x/3x/6x、前摄、后摄人像、夜景、高像素、街拍、
+电影、多景录像（录制成功，finalize 待修）、慢动作、普通录像、完整 APS。
