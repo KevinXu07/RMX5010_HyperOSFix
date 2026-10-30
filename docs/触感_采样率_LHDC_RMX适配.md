@@ -106,16 +106,24 @@ scale=0.8 -> 0.74
 
 ### 1.6 2026-10-30：键盘/触控 Step 波形修正（参考一加13）
 
-问题不是振幅，而是 HyperOS/MIUI_SDK 键盘发出 **75ms 持续 Step**。继续往
-HAL/驱动层看：
+问题不是振幅。继续往 HAL/驱动层看，真实 Sogou 键盘一次按键下发的是：
+
+```text
+[Step=0ms, Step=45ms(amp 0.74), Step=67ms(off), Step=79ms(amp 0.74)]
+总长 191–231ms，reason=TAG=pattern_vibration;keyword=MIUI_SDK
+```
+
+这不是单个 75ms Step，而是双脉冲持续驱动。HAL 日志对应两次
+`aidl_vibrator: Vibrator on for timeoutMs: 45/79`，驱动侧是恒定数据 +
+固定 brake（约 5.7–14ms），所以打字仍然像转子/双敲。之前只按
+30–90ms 单步过滤，整段 191ms pattern 根本没被改写。
+
+底层组件：
 
 - AIDL `android.hardware.vibrator.IVibrator/default` 由
   `vendor.oplus.hardware.vibrator-service` 提供，服务环境是
   `RICHTAP_DEVICE_PATH=/dev/awinic_haptic`；
-- Step 路径在 HAL 日志里是
-  `aidl_vibrator: Vibrator on for timeoutMs: 75` + `set amplitude`，
-  驱动侧是恒定数据 + 固定 brake（约 5.7–14ms），所以持续驱动仍然像转子；
-- 预置 effect 0..5 则走 809 校准数据：
+- 预置 effect 0..5 走 809 校准数据：
   `perform effect 2` → `custom data 2 length 448, play-rate 24000 Hz`，
   `perform effect 4` → `length 395`，effect 5 → `length 1454`，
   并带 Vmax/brake 参数。`/odm/etc/vibrator/809/def/effect_*.bin` 是
@@ -126,32 +134,33 @@ HAL/驱动层看：
 
 - `HapticHooks.hookTouchStepEffects()` hook
   `VibratorManagerService.vibrateInternal`；
-- 对总时长 **30–90ms** 的 Step（键盘 75ms、设置预览 45/67/79ms），
+- 对 `reason` 含 `MIUI_SDK` 或 `pattern_vibration` 的整段 pattern
+  （实测键盘 191ms），以及普通 30–90ms 单 Step，
   默认替换为 **校准预置 effect 2（TICK，448B@24kHz）**；
 - 可通过 `op13_fix_haptic_click_effect` 切换：
   - `2` = TICK（默认，短促）
   - `4` = POP（稍厚）
   - `5` = HEAVY_CLICK（更重）
   - `-1` = 回退 12ms 裸 Step
-- 时长只按效果时长过滤，不依赖 OEM 的 usage 编号（OS4 的 usage 4
-  在 dumpsys 中显示为 “unknown usage”）。
+- 只按 reason/时长过滤，不依赖 OEM 的 usage 编号（实际键盘在 dumpsys
+  里显示为 usage UNKNOWN）。
 
 实测：
 
 ```text
-settings put global op13_fix_haptic_click_effect 2
-cmd vibrator_manager synced -f -B -u 4 oneshot 75 255
-→ played: Prebaked=TICK(...)
-→ RMX5010HyperOSFix: haptic touch step 75ms -> effect=2 (usage=4)
+真实 Sogou 按键：
+→ haptic touch step 191ms -> effect=2 (usage=0)
+→ played: Prebaked=TICK(MEDIUM, with fallback)
+→ aidl_vibrator: Vibrator perform effect 2
+→ qcom-hv-haptics: custom data 2 length 448, play-rate 24000 Hz
 
 settings put global op13_fix_haptic_click_effect 4
 → played: Prebaked=POP(...)
-→ haptic touch step 75ms -> effect=4 (usage=4)
 ```
 
 Sense APK 已重新构建并安装，system_server 日志：
 `haptic compatibility active: map=1 info=1 scale=1 click=1`。
-用户可先用默认 `2` 打字；若想更厚可切 `4`，想更重切 `5`，想对比旧方案切 `-1`。
+默认 `2`；想更厚可切 `4`，想更重切 `5`，想对比旧方案切 `-1`。
 
 
 

@@ -57,10 +57,11 @@ final class HapticHooks {
     }
 
     /**
-     * HyperOS sends the Xiaomi keyboard/settings feedback as a 75-79 ms Step.
-     * A sustained Step on this LRA reads as a rotor-like buzz instead of a
-     * crisp click. Rewrite short touch Steps to the HAL's calibrated effect
-     * (default TICK/2, 448 B @ 24 kHz); the 12 ms raw Step is only a fallback.
+     * HyperOS/Sogou sends the keyboard feedback as a 45/67/79 ms multi-Step
+     * pattern (231 ms total), not a single Step. A sustained multi-pulse Step
+     * on this LRA reads as a rotor-like double thump. Rewrite MIUI_SDK touch
+     * patterns (and short single Steps) to the HAL's calibrated effect
+     * (default TICK/2); -1 keeps the 12 ms raw Step fallback.
      */
     private static int hookTouchStepEffects(ClassLoader loader) {
         Class<?> service = Reflect.findClass(loader,
@@ -104,7 +105,13 @@ final class HapticHooks {
                                     XposedHelpers.callMethod(original, "getDuration");
                             long duration = rawDuration instanceof Number
                                     ? ((Number) rawDuration).longValue() : -1L;
-                            if (duration < 30 || duration > 90) {
+                            boolean keyboardPattern = reason != null
+                                    && (reason.contains("MIUI_SDK")
+                                    || reason.contains("pattern_vibration"));
+                            if (!keyboardPattern && (duration < 30 || duration > 90)) {
+                                return;
+                            }
+                            if (duration > 500) {
                                 return;
                             }
                             int effectId = clickEffectId();
