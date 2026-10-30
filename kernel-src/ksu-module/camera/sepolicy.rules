@@ -1,0 +1,73 @@
+type oplus_camera_app2
+typeattribute oplus_camera_app2 domain
+typeattribute oplus_camera_app2 appdomain
+typeattribute oplus_camera_app2 priv_app_all
+typeattribute oplus_camera_app2 opluscamera_app_202404
+typeattribute oplus_camera_app2 mlstrustedsubject
+typeattribute oplus_camera_app2 halclientdomain
+typeattribute oplus_camera_app2 hal_camera_client
+typeattribute oplus_camera_app2 hal_graphics_allocator_client
+permissive oplus_camera_app2
+allow mediacodec oplus_camera_app2 binder { transfer call }
+allow oplus_camera_app2 mediacodec binder { transfer call }
+allow mediaswcodec oplus_camera_app2 binder { transfer call }
+allow oplus_camera_app2 mediaswcodec binder { transfer call }
+allow hal_camera_default oplus_camera_app2 binder { call transfer }
+allow oplus_camera_app2 hal_camera_default binder { call transfer }
+allow oplus_camera_app2 appdomain_tmpfs file { read write getattr map execute }
+allow oplus_camera_app2 appdomain memfd_file { read write getattr map execute }
+allow oplus_camera_app2 oplus_camera_app2 memfd_file { read write create getattr map execute }
+allow oplus_camera_app2 oplus_camera_app2 file { ioctl read write create getattr setattr lock append map unlink rename open }
+allow oplus_camera_app2 oplus_camera_app2 file execute
+allow oplus_camera_app2 oplus_camera_app2 dir { ioctl read write create getattr setattr rename open search add_name remove_name reparent rmdir }
+allow oplus_camera_app2 oplus_camera_app2 lnk_file { read getattr open }
+allow oplus_camera_app2 oplus_camera_app2 fifo_file { read write open }
+allow oplus_camera_app2 oplus_camera_app2 fd use
+allow oplus_camera_app2 oplus_camera_app2 process fork
+allow oplus_camera_app2 oplus_camera_app2 process sigchld
+allow oplus_camera_app2 oplus_camera_app2 process sigkill
+allow oplus_camera_app2 oplus_camera_app2 process sigstop
+allow oplus_camera_app2 oplus_camera_app2 process signull
+allow oplus_camera_app2 oplus_camera_app2 process signal
+allow oplus_camera_app2 oplus_camera_app2 process getsched
+allow oplus_camera_app2 oplus_camera_app2 process setsched
+allow oplus_camera_app2 oplus_camera_app2 process getsession
+allow oplus_camera_app2 oplus_camera_app2 process getpgid
+allow oplus_camera_app2 oplus_camera_app2 process setpgid
+allow oplus_camera_app2 oplus_camera_app2 process getcap
+allow oplus_camera_app2 oplus_camera_app2 process setcap
+allow oplus_camera_app2 oplus_camera_app2 process getattr
+allow oplus_camera_app2 oplus_camera_app2 process setrlimit
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket create
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket connect
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket read
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket write
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket sendto
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket recvfrom
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket getattr
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket setattr
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket ioctl
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket bind
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket getopt
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket setopt
+allow oplus_camera_app2 oplus_camera_app2 unix_dgram_socket shutdown
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket create
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket connect
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket read
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket write
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket getattr
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket setattr
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket connectto
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket listen
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket accept
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket getopt
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket setopt
+allow oplus_camera_app2 oplus_camera_app2 unix_stream_socket shutdown
+allow oplus_camera_app2 vendor_data_file dir { ioctl read write create getattr setattr rename open search add_name remove_name reparent rmdir }
+allow oplus_camera_app2 vendor_data_file file { ioctl read write create getattr setattr lock append map unlink rename open }
+allow oplus_camera_app2 app_data_file dir { ioctl read write create getattr setattr rename open search add_name remove_name reparent rmdir }
+allow oplus_camera_app2 app_data_file file { ioctl read write create getattr setattr lock append map unlink rename open }
+allow oplus_camera_app2 privapp_data_file dir { ioctl read write create getattr setattr rename open search add_name remove_name reparent rmdir }
+allow oplus_camera_app2 privapp_data_file file { ioctl read write create getattr setattr lock append map unlink rename open }
+allow oplus_camera_app2 privapp_data_file lnk_file { read getattr open }
+allow init cameraserver process2 nosuid_transition

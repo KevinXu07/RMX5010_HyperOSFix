@@ -5,7 +5,7 @@
 ## 1. 最终结构
 
 ```text
-KernelSU  rmx5010_fod_bridge（显示名 RMX5010 HyperOS Fix，1.2.0）
+KernelSU  rmx5010_fod_bridge（显示名 RMX5010 HyperOS Fix，1.3.9）
           根脚本、FOD 桥、双击亮屏、触控采样率、音频 bind mount、
           IFAA SELinux、钱包锁屏 AppOp、ctl.sh/status.conf
 LSPosed   com.zephiel.sense（唯一模块）
@@ -137,7 +137,7 @@ adb reboot
   `wallet gesture -> FinShell swipe hook installed`、
   `ColorOSWalletCompat: ...`、`LHDC V5 software encoder interface installed`。
 - 锁屏/解锁双击电源键均进入 `NfcConsumeActivity`；锁屏页面覆盖 Keyguard。
-- Sense“移植修复”页显示 `KSU 1.2.0 · LSP 已激活`，并能执行重新应用。
+- Sense“移植修复”页显示 `KSU 1.3.9 · LSP 已激活`，并能执行重新应用。
 
 ## 5. 注意事项
 

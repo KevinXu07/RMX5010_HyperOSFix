@@ -1,0 +1,552 @@
+# OplusCamera 系统级移植（RMX5010 / haotian OS4）
+
+> 日期：2026-10-29  
+> 模块：`rmx5010_fod_bridge` 1.4.1（产物 `out/rmx5010_fod_bridge-1.4.1-camera.zip`，
+> SHA-256 `daaedcd552428cb7034189a6fe34af0d9f4121bc70c9608485fece4e9f633c64`）  
+> 目标：删除 `/product/priv-app/MiuiCamera` 的小米相机，按 OS3/OS4 相机移植文档把 RMX5010 原厂
+> OplusCamera 以 system/priv-app 身份装回，并保留 P010、权限、SELinux、Provider stub 等闭包。
+
+---
+
+## 1. 最终状态（诚实结论）
+
+| 项目 | 状态 |
+|---|---|
+| MiuiCamera 隐藏 | ✅ overlay whiteout，`/product/priv-app/MiuiCamera` 不再可见 |
+| OplusCamera 系统安装 | ✅ `flags=[SYSTEM ...]`、`privateFlags=[... PRIVILEGED PRODUCT]`、`codePath=/product/priv-app/OplusCamera` |
+| 进程启动 | ✅ `u:r:oplus_camera_app2`，在 Enforcing 下启动（域本身 permissive） |
+| Camera 0 打开 | ✅ `dumpsys media.camera` 显示 Device 0 open |
+| session 配置 | ✅ 使用修改后的 ODM `camera_unit_config`，`onSessionConfigured` 成功 |
+| 预览首帧 | ✅ `CameraPreviewCallback ... first frame arrive`，`repeatingRequestEnd` 持续 |
+| 拍照成片 | ❌ 快门点击后 `capture, decisionResult is null` / `isReadyToCapture ... so return`，未落盘 |
+| 相册跳转 | ⚠️ 仅安装 `com.coloros.gallery3d` 占位包，缩略图/相册功能不完整 |
+
+**不能把本次结果称为“相机移植完成”。** 预览链路已经打通到首帧，但 Oplus 的预览决策
+（`decisionResult`）没有产出，快门被 BaseMode 拒绝；需要继续处理缺失的 Oplus 私有库、
+预览决策配置或改走 V24 相机的 stream/decision 补丁。
+
+---
+
+## 2. 为什么不能简单替换 APK
+
+`/product/priv-app/MiuiCamera` 在 `packages.xml` 中已有 `com.android.camera` 记录
+（`isOrphaned=true`，测试证书）。把同目录的 `MiuiCamera.apk` 换成 `com.oplus.camera` 后，
+PackageManager 不会把它当作新包扫描：
+
+- 旧记录仍占用同一 codePath；
+- 系统扫描时路径冲突，`com.oplus.camera` 不会进入系统包表；
+- 作为用户 app 安装会触发 hidden API 黑名单（`PropertyInvalidatedCache.<init>(I,String)`），
+  且拿不到 priv-app 权限。
+
+因此最终改用 **目录级 overlay**：在 `/product/priv-app` 上挂 tmpfs+overlayfs，新增
+`OplusCamera`、`MiuiCameraProviderStub`、`ColorOSGalleryStub`，同时用 whiteout 把
+`MiuiCamera` 从 lower EROFS 中遮掉。lower 分区完全未改。
+
+---
+
+## 3. 负载与挂载点
+
+模块 `kernel-src/ksu-module/camera/`：
+
+| 文件 | 作用 |
+|---|---|
+| `priv-app/MiuiCamera/OplusCamera.apk` | LUT stub 后的 OplusCamera 6.020.888（SHA-256 `474dcfa0...`） |
+| `priv-app/MiuiCamera/MiuiCameraProviderStub.apk` | 小米相册 `com.xiaomi.camera.parallelservice.stub` Provider |
+| `priv-app/ColorOSGalleryStub/ColorOSGalleryStub.apk` | `com.coloros.gallery3d` 元数据占位，避免 `Util.e0` 空 Bundle NPE |
+| `etc/camera_unit_config` | ODM SAT photo 去掉 wide RAW16 与全部 RAW output 的 JSON |
+| `etc/permissions/privapp-permissions-com.oplus.camera.xml` | 特权权限白名单 |
+| `etc/default-permissions/default-permissions-com.oplus.camera.xml` | 默认权限 |
+| `etc/sysconfig/hiddenapi-package-whitelist-com.oplus.camera.xml` | hidden API 白名单 |
+| `sepolicy.rules` | `oplus_camera_app2` 域创建、属性集合、数据 allow、`permissive` |
+| `libnativewindow.so` | P010 `0x7fa30c0a` 分支补丁 |
+
+`camera_fix.sh` 在 post-fs-data 执行：
+
+1. bind mount `libnativewindow.so` 到 `/system/lib64/`；
+2. resetprop `ro.oplus.camera.defercap.*=1`；
+3. bind mount 修改后的 `/odm/etc/camera/config/camera_unit_config`（必须在 camera provider
+   启动前，provider 会缓存该文件）；
+4. tmpfs 512M + overlayfs 挂 `/product/priv-app`；
+5. 合并 `/product/etc/permissions`、`default-permissions`、`sysconfig`；
+6. `ksud sepolicy patch` 创建 `oplus_camera_app2` 并设置 permissive；
+7. 在 `/product/etc/selinux/product_seapp_contexts` 首行插入
+   `com.oplus.camera -> oplus_camera_app2` 并 bind mount。
+
+---
+
+## 4. SELinux：为什么新建 `oplus_camera_app2`
+
+OS4 的 vendor 公共策略里有 `opluscamera_app` 类型和 `opluscamera_app_202404` 属性，但：
+
+- 直接 `runcon u:r:opluscamera_app:s0` 返回 `Invalid argument`，该名字在运行时策略里不是
+  可用的进程类型；
+- `seapp_contexts` 指向它后，zygote `selinux_android_setcontext` 失败，进程 SIGABRT；
+- 即使给它 `appdomain` 属性，内核仍拒绝该 context。
+
+最终用 KSU live patch 新建 `oplus_camera_app2`（带 `type` 声明），加入：
+
+```
+domain, appdomain, priv_app_all, opluscamera_app_202404,
+mlstrustedsubject, halclientdomain, hal_camera_client,
+hal_graphics_allocator_client
+```
+
+并把该域设为 **permissive**。这样 vendor 里已有的 camera HAL/offlinecamera 规则通过
+`opluscamera_app_202404` 继承，同时不会因为 OS4 缺失的通用 app 规则（binder/GPU/proc 等）
+让相机进程启动失败。系统其余域保持 Enforcing。
+
+> 安全边界：permissive 只作用于 `com.oplus.camera` 的专用域，不是 `setenforce 0`；但确实
+> 放宽了该 app 的 SELinux 约束。后续若要回到严格模式，需要补齐 `appdomain` 的
+> binder/GPU/proc/file 等规则，而不是继续扩大 `priv_app_36`。
+
+---
+
+## 5. APK 内改动（LUT stub）
+
+OS4 没有 RMX 的 `libCombineLutJni.so`，OplusCamera 在 `CombineLutJNI.<clinit>` 直接
+`System.loadLibrary("CombineLutJni")`，导致 preview GL 线程 `UnsatisfiedLinkError`。
+
+本次对 APK 做最小改动：
+
+- `classes31.dex`：把 `CombineLutJNI.<clinit>` 中的 `invoke-static System.loadLibrary`
+  三条指令替换为 `nop`；
+- `classes12.dex`：`CombineLutHelper.init(...)` 两个重载直接 `const/4 p0, 1; return p0`，
+  让 `Lut3dDataManager` 走“init failed”分支，跳过可选 3D LUT 路径。
+
+重建流程：
+
+```
+zipalign -p -f 4  (重建 APK 后)
+apksigner sign --ks os4/camera_patch/fullsave_camera_test.jks \
+  --ks-key-alias camera --ks-pass pass:changeit --key-pass pass:changeit
+```
+
+签名证书保持 `CN=RMX5010 OplusCamera FullSave Test`，与系统包记录一致。
+
+**这不是完整修复**：3D LUT/自然色调功能被禁用；其余依赖 `libCombineLutJni.so` 的路径不会
+执行。后续若拿到 OS3 product 的 32 个 RMX private libs，可恢复该库并回滚 stub。
+
+---
+
+## 6. gallery 占位
+
+OplusCamera 在 `Util.e0(Context, String)` 里直接：
+
+```
+getPackageInfo("com.coloros.gallery3d", 0x80)
+  .applicationInfo.metaData.getBoolean(key)
+```
+
+OS4 没有 ColorOS 相册，`metaData` 为 null 时 `SeamlessUIControl` 构造直接 NPE，Activity
+无法启动。本次安装了一个 3KB 的 `com.coloros.gallery3d` 占位 APK，带以下 meta-data：
+
+```
+isIntegrationUITransitionSupported=false
+isSupportBlurEdit=false
+isSupportEarlyStart=false
+isSupportAIIDPhoto=false
+isSupportMediaInfoInsert=false
+```
+
+模块 post-boot 在包不存在时 `pm install -r`。它只解决“包/元数据存在”，不提供真实相册。
+
+---
+
+## 7. ODM `camera_unit_config` 改动
+
+原配置 `sat_photo_case` 同时请求：
+
+```
+raw16_output rear_main / rear_wide / rear_tele
+raw_output   rear_main / rear_wide / rear_tele
+capture_yuv  rear_main / rear_wide / rear_tele
+...
+```
+
+小米 HAL 对 physical camera 3（rear_wide）返回：
+
+```
+Camera 0: No supported stream configurations with format 0x20 defined
+PhysicalCameraId: 3
+```
+
+0x20 = RAW16。即使把 wide RAW16 去掉，raw16 与 raw_output 对同一 physical camera 复用
+同一个 Surface，又会报 `Surface already has a stream created for it (ID 2)`。
+
+本次模块负载中去掉：
+
+- 所有 usecase 的 `raw16_output rear_wide`；
+- 所有 usecase 的 `raw_output rear_main/rear_wide/rear_tele`（保留 `raw_output var_camera`）。
+
+session 因此能配置成功，但这也可能是 `decisionResult` 为空的原因之一；后续应优先做
+**按 operation mode 的 getSurfaceSize 补丁**（参考 OS3 V24 的 PortraitMode 补丁），而不是
+长期删除 raw 流。
+
+---
+
+## 8. 实机验证证据（2026-10-29）
+
+```
+pm path com.oplus.camera
+  -> /data/app/...（系统 base 在 /product/priv-app/OplusCamera）
+dumpsys package com.oplus.camera
+  flags=[ SYSTEM HAS_CODE ALLOW_CLEAR_USER_DATA LARGE_HEAP ]
+  privateFlags=[ ... PRIVILEGED PRODUCT ... ]
+
+ps -A -o LABEL | grep com.oplus.camera
+  u:r:oplus_camera_app2:s0:c512,c768
+
+dumpsys media.camera
+  Device 0 is open. Client instance dump
+
+logcat
+  onSessionConfigured, block!
+  repeatingRequestEnd: frameNumber:6 ...
+  CameraPreviewCallback, onPreviewMetaReceived, first frame arrive
+```
+
+快门失败：
+
+```
+OCAM_CameraControlUI: onShutterButtonClick
+OCAM_p2_BaseMode: capture, decisionResult is null
+OCAM_p2_BaseMode: isReadyToCapture, decisionResult is null or mCameraId not matched
+OCAM_p2_BaseMode: capture, failed in screen torch mode
+```
+
+---
+
+## 9. 下一步（未完成）
+
+1. 找到/补回 RMX 的 32 个 private libs（至少 `libCombineLutJni.so`），回滚 LUT stub；
+2. 对比 OS3 V24 `PortraitMode/PhotoMode.getSurfaceSize`，按 operation mode 修正 wide RAW
+   尺寸，恢复 raw 流而不是删除；
+3. 追 `decisionResult` 来源（Oplus PreviewDecision / vendor tags `flash.status`、
+   `iris.aperture.switching` 等），确认是缺失库、ODM 决策配置还是 SAT camera 选择问题；
+4. 处理 `com.coloros.gallery3d`：安装真实 OplusGallery 或让 App 使用小米相册；
+5. 成片、相册跳转、前摄/长焦/录像/人像逐项验收后，才可把状态改为“完成”。
+
+---
+
+## 10. 回退
+
+- 删除模块 `camera/` 负载或关闭 `camera_fix.sh` 中的 `ensure_camera_port` 调用，重启后
+  `/product/priv-app/MiuiCamera` 恢复可见（但 `com.android.camera` 仍被用户态禁用）；
+- `cmd game reset com.nexon.bluearchive` 可清掉游戏 custom 覆盖；
+- 相机域 permissive 只存在于 live policy，重启后由模块 `sepolicy.rules` 重新施加；
+  卸载模块并重启即恢复原策略。
+
+---
+
+## 11. 2026-10-30 01:00–02:10 追加诊断（当前真实状态）
+
+这一轮先把 `decisionResult` 问题推进了一步，但**仍未成片**，且发现了比 APS 更关键的
+运行时代码来源问题。结论如下。
+
+### 11.1 已确认进展
+
+- `OCAM_CaptureProcessor: onPreviewDecisionResult, first result, feature: 0, scene: 0,
+  multi-frame count: 0` 已出现，说明预览决策不再返回空；
+- Camera 0 打开、`onSessionConfigured`、`preview` 持续出帧（`cameraServer send preview
+  frame`）均正常；
+- 当前快门失败日志变为：
+
+  ```
+  CameraUnit, ProducerImpl: takePicture, not allow take picture,
+    mbApsFinishAddFrame: true, isApsCaptureAlgoInitializing: true,
+    checkResult: 1, isCShot: false
+  OCAM_ApsService: onCaptureFailed
+  ```
+
+  `checkResult: 1` 说明 `isAllowedToTakePicture` 先返回了 1（模式暂时不允许拍），
+  并非单纯 `decisionResult` 为空；APS 初始化也仍是 true。
+
+### 11.2 试过但无效/已回退
+
+1. **OnePlus `libAlgoInterface.so` / `libAlgoProcess.so` 覆盖 `/odm/lib64`**：
+   参考仓库 README 明确把“单独换官方 `libAlgoInterface`”列为已知相机故障项，已回退，
+   `camera_fix.sh` 不再挂载这两个文件；当前使用 RMX ODM 原配。
+2. **SAT photo 改 raw16 main/tele、去掉 raw_output**：session 仍能配置，但
+   `capture_meta` 流 `Frames produced: 0`，APS 初始化仍卡住，已回退到 rawout_notwide。
+3. **APK dex 补丁**：对 `com.oplus.ocs.camera.consumer.ConsumerImpl` 和
+   `ProducerImpl.takePicture` 的 `isAllowedToTakePicture` / APS 门禁做了返回 false /
+   跳过分支的补丁，并把日志字符串改成唯一 marker `takePicture, PATCHCHECK, ...`；
+   重新打包、签名、作为 `/product/priv-app/OplusCamera/OplusCamera.apk` 替换并清空
+   `/data/dalvik-cache`、`/data/user/0/com.oplus.camera/cache/oat_primary` 后重启。
+   运行日志**仍打印旧字符串**，证明运行中的进程没有执行 overlay 替换后的
+   `classes31.dex`；实际执行的是预加载/AOT/旧副本。K6b APK 与 rawout_notwide 已恢复，
+   当前模块回到可启动、可开会话的保守状态。
+
+### 11.3 预览黑屏 / `CameraScreenNail` 告警
+
+- `OCAM_CameraScreenNail: onFrameAvailable, surfaceTexture does not correspond` 持续出现，
+  `CameraScreenNail.draw` 里 `mbFirstFrameArrived false`；`SurfaceTextureScreenNail`
+  仍在 `addImageBuffer`。
+- 截图曾出现纯黑但 UI 正常；当时 SurfaceFlinger 显示输出层 `isSecure=true`，不能排除
+  HyperOS 对相机预览做了截屏保护，因此“截图黑”不等于“屏幕一定黑”。该路径尚未做
+  肉眼验收，按未完成处理。
+
+### 11.4 当前设备状态（02:10）
+
+- 模块 `rmx5010_fod_bridge` 1.4.1，已启用；相机负载为 K6b APK、rawout_notwide 配置；
+- `camera_fix.sh` 已去掉 OnePlus Algo 库挂载；
+- 屏幕已锁（`mWakefulness=Dozing`, `mScreenState=DOZE`），相机已 force-stop；
+- 旧的 APS/marker APK 仅留在 `os4/camera_patch/` 作为诊断产物，不参与启动。
+
+### 11.5 下一步建议（按优先级）
+
+1. **改镜像而不是 overlay**：把 K6b/后续补丁 APK 与 `camera_unit_config` 直接写进
+   product/system_ext 镜像再刷入；这与“之前改镜像测试可行”的路线一致，也能绕开
+   预加载/AOT/旧副本问题。镜像构建基线已备份为 `os4/system_ext_current.img`。
+2. 镜像级替换后重新验证 `PATCHCHECK` marker 是否出现；若出现，再判断
+   `isAllowedToTakePicture=1`（zoom/preview 未 ready）和 APS init 的具体分支。
+3. 若 APS 仍卡住，优先从 vendor/ODM 的 APS sensor mode / `capture_meta` 流入手，
+   不要再用 OnePlus algo 库硬替换。
+4. 成片、前摄、长焦、人像、录像逐项验收后，才能把 D43 改为完成。
+
+
+---
+
+## 12. 2026-10-30 10:20–10:40 结果：主摄成片打通（1.5.0）
+
+### 12.1 真正的代码来源
+
+上一节判断“必须改镜像”后，进一步把实际加载的类定位清楚了：
+
+- `CameraScreenNail` 等在 **APK classes12**；
+- `ProducerImpl`、`Camera2Impl`、`ConsumerImpl` 在 **`/system_ext/framework/com.oplus.camera.unit.sdk.jar`**；
+- 应用 classloader 日志明确：
+  `PathClassLoader[DexPathList[[zip file "/system_ext/framework/com.oplus.camera.unit.sdk.jar"], ...]]`。
+- 所以之前改 APK 的 `ProducerImpl` 门禁不生效；改 JAR 后才生效。
+
+### 12.2 已刷入的镜像
+
+- 从 `/dev/block/dm-21` 备份 product：`os4/product_current.img`；
+- 修改 stage：删除 `/product/priv-app/MiuiCamera`，加入
+  `/product/priv-app/OplusCamera/OplusCamera.apk`（preview-patched，SHA-256
+  `20fca02614c50fe61ae67700b49de30a5c771d9c59fd16dacc04f519e8cd5350`）及权限 XML；
+- 生成 `os4/product_camera_preview.img`（4,300,865,536 字节，EROFS lz4hc；
+  SHA-256 `0e0cbe994e185074ac768d0894f5fc8c2311a73b370602a4c767ba25b7325e3e`），
+  `fsck.erofs` 通过；
+- `fastboot flash product_a` 成功，重启进入系统；Current slot `_a`；
+- 由于 product 分区满，**app private libs 仍由 KSU 模块注入**，镜像只放 APK。
+
+### 12.3 JAR 补丁（`com.oplus.camera.unit.sdk.jar`）
+
+- 跳过 `ProducerImpl.takePicture` 的 `isAllowedToTakePicture` / APS 门禁；
+- `Camera2Impl.takePicture` 入口强制 `mRequestNum=1`；
+- `updatePreviewTarget` 对空 `mbNeedPreviewStream` 数组直接返回，避免
+  `ArrayIndexOutOfBoundsException`；
+- `ConsumerImpl$InnerCameraPictureCallbackAdapter.onImageReceived` 在
+  `mCameraPictureCallbackAdapter` 为空时直接写 JPEG：
+  `/sdcard/DCIM/Camera/OPLUS_<System.currentTimeMillis()>.jpg`，并调用
+  `MediaScannerConnection.scanFile` 入库；
+- APK `aj.h`（`CameraScreenNail`）在 SurfaceTexture 不匹配时接受新 texture，
+  不再直接 return。
+
+### 12.4 配置
+
+- `mode_type_list` 删除 `rear_sat`，让照片模式落到 `rear_main`（Camera ID 0），
+  绕开 SAT/APS 离线 Bayer2Yuv；
+- `professional_case` 去掉重复 `raw_output`；
+- 当前 `/odm/etc/camera/config/camera_unit_config` 为 `camera_unit_config_no_sat.json`
+  （`rawout_notwide` 基础上修改）。
+
+### 12.5 实测证据（屏幕关闭前完成）
+
+```
+OCAM_CameraCore: openCamera, ID: 0
+CameraUnit, Camera2Impl: takePicture start, mRequestNum: 1
+CameraUnit, Camera2Impl: takePicture, captureBurst request to HAL
+CameraUnit, ConsumerImpl: onApsJpegArrived, image orientation: 90
+OCAM_CaptureProcessor: completeCapture, capture: 1, success: true
+MediaScannerConnection: Scanned /sdcard/DCIM/Camera/OPLUS_1793327286252.jpg
+```
+
+产物：
+
+- `/sdcard/DCIM/Camera/OPLUS_1793327286252.jpg`
+- `/sdcard/DCIM/Camera/OPLUS_1793327378672.jpg`
+- 均为 4096×3072 JPEG，约 777–780KB，MediaStore 可查询。
+
+暗场测试图像 mean≈4、max≈46（房间 lux≈1），不是纯 0 空 buffer；画质需白天复测。
+预览截图在暗场仍近黑；`surfaceTexture does not correspond` 日志已消除，但需要在正常光照下
+肉眼确认预览。**SAT/长焦/超广/人像/前摄/录像尚未逐项验收。**
+
+### 12.6 当前版本与回退
+
+- 模块已升到 **1.5.0 / versionCode 17**；屏幕已关（`mScreenState=OFF`），AOD 关闭；
+- product 备份 `os4/product_current.img` 可 fastboot 回刷；
+- JAR 补丁在模块 `/system/system_ext/framework/com.oplus.camera.unit.sdk.jar`，
+  可删除/替换回原版；
+- 删除 `camera_unit_config` 的 `rear_sat` 修改即可恢复 SAT（但当前 HAL APS 仍会失败）。
+
+
+### 12.7 前摄实测（2026-10-30 10:59）
+
+UI 上的切换按钮在当前状态没有触发切换（点击无响应），但 OplusCamera 支持系统相机
+`CAMERA_FACING` extra，直接启动前摄：
+
+```bash
+adb shell am start -n com.oplus.camera/.Camera \
+  --ei android.intent.extras.CAMERA_FACING 1
+```
+
+实测：
+
+```
+OCAM_CameraCore: openCamera, ID: 1
+OCAM_PreviewRenderer: createCameraScreenNail, frontCamera: true
+CameraSessionEntity{ mCameraType='front_main', mPictureSize=4608x3456, ... }
+Camera2Impl: takePicture start, mRequestNum: 1
+ConsumerImpl: onApsJpegArrived, image orientation: 90
+OCAM_CaptureProcessor: completeCapture, capture: 1, success: true
+MediaScannerConnection: Scanned /sdcard/DCIM/Camera/OPLUS_1793329158722.jpg
+```
+
+产物：`OPLUS_1793329158722.jpg`，2304×1728 JPEG，1,597,368 字节，
+mean≈121.8 / max=255 / std≈80，是正常亮度的前摄画面，不是黑图。
+说明摄像头打开、成片、保存链路对前摄同样有效；UI 切换按钮/预览渲染仍是独立问题。
+
+
+### 12.8 预览修复（2026-10-30 11:24–11:33）
+
+预览黑屏的根因不是没有帧，而是 `CameraScreenNail` 的首帧状态与 GL 重绘触发不匹配：
+
+- `PreviewProcessor` 每帧把 YUV buffer 加入 `mCachePreviews` 后调用
+  `CameraScreenNail.onFrameAvailable`；
+- 首次 `draw` 在首帧到达前执行，设置了 `M0=true` 后因 `N0=false` 提前返回，
+  后续帧不再触发 GL 重绘；
+- 表面纹理还会出现 `surfaceTexture does not correspond`，旧逻辑直接 return。
+
+最终补丁（APK classes12）：
+
+1. `CameraScreenNail.onFrameAvailable` 在纹理不匹配时接受新 texture 并继续；
+2. `CameraScreenNail.draw` 提前返回时把 `M0` 复位为 false；
+3. `PreviewProcessor` 在首帧（`N0=false`）时向 `CameraScreenNail.k` Handler
+   post 一次 `T0`，kick 首次 GL 重绘；后续帧由原逻辑继续触发。
+
+结果：前摄预览截图 mean≈79（max 204、std 95），不再纯黑；相机进程稳定，
+无 VerifyError/原生崩溃，快门可正常成片。
+
+最终镜像：`os4/product_camera_final.img`，SHA-256
+`27108ed3ea6c1113b7f3cad8ca5970333cefd7f11f43d6d7bdcd0cdd726fa236`；
+product APK `OplusCamera_preview6_signed.apk`，SHA-256
+`89f02709ecc4baca9da0bec13730dde42f42fafc56f39c4cf9f5ea9e6d7d3393`。
+刷入后重启，前摄预览 + 成片 `OPLUS_1793331193356.jpg` 验证通过；屏幕已锁。
+
+### 12.9 仍缺
+
+- 相机 UI 的前后摄切换按钮点击无响应；前摄目前用
+  `--ei android.intent.extras.CAMERA_FACING 1` 启动。
+- SAT/长焦/超广/人像/录像未逐项验收；为绕开 APS 已从 `mode_type_list` 去掉 `rear_sat`。
+- JAR 直写 JPEG，未走原生 Oplus 保存/后期，画质与 HDR/美颜等不完整。
+
+### 12.10 完整算法尝试（2026-10-30 12:10–12:30）与结论
+
+为保留完整 Oplus APS/HDR/SAT 算法，恢复了原版
+`com.oplus.camera.unit.sdk.jar` 和含 `rear_sat` 的原厂 `camera_unit_config`，并尝试
+system_ext/priv-app 布局。结果：
+
+- 原版 JAR + 原厂配置：相机打开 `Camera ID: 12`（rear_sat），但
+  `isApsCaptureAlgoInitializing` 卡住，`takePicture` 仍被拒。
+- 追踪到 APS 配置解密依赖：
+  `libOplusStringJNI-extension.oplus.so` → `libvndksupport.so@LIBVNDKSUPPORT`
+  → `libdl_android.so` → `ld-android.so`。
+  app 的 `clns-11` 命名空间无法访问这串私有库；自建 stub 能让 extension 加载，
+  但 `getString` 无法加载 base，`oplus_camera_config` 解密失败，APS 仍不初始化。
+- 用 system_ext/priv-app overlay 试图切换命名空间时，system_server 启动阶段异常，
+  设备卡在开机动画；已通过禁用 KSU 模块恢复，随后回退到 product overlay 的可用状态。
+- 工作区中已找不到之前 OS4 的 V24 完整 product 镜像
+  （`os4_rmx5010_camera_oplus_domain_v3`）；OS3 的 V24 APK 也不在本机。
+  因此当前无法凭空恢复“完整算法”的闭包。
+
+当前设备状态（已恢复可用、屏幕已关）：
+
+- product 镜像的 OplusCamera + 模块预览补丁 APK + `unit.sdk.basic.jar` + `no_sat` 配置；
+- 主摄自动/专业、前摄、预览、DCIM 落盘 + MediaStore 可用；
+- 完整 APS/HDR/SAT 算法未保留；需要上一版 V24 完整包（APK + JAR + 32 私有 libs +
+  ODM 配置）或正确的 OS4 RMX system_ext 闭包才能继续。
+- 模块 1.5.0，屏幕 `mScreenState=OFF`，无临时 disable 文件。
+
+---
+
+## 13. 6.070.45 完整算法打通（2026-10-30 13:30–13:50）
+
+### 13.1 结论
+
+16.0.7.201 原厂包里的 OplusCamera **6.070.45** 已作为数据区更新安装并跑通完整
+APS 拍摄链路；成片由相机自身原生保存，不再使用 JAR 直写。界面是这版原厂包的
+新 UI（与旧 6.020.888 不同），但包本身属于 RMX5010 的 16.0.7.201 原厂闭包。
+
+实测：
+
+- `Camera2Impl: takePicture start, mRequestNum: 8`（多帧，不是强制单帧）；
+- APS/TurboHDR/ArcSoft/离线 Bayer2Yuv 均进入处理；
+- `completeCapture success: true`、`onApsJpegArrived`；
+- 落盘 `/sdcard/DCIM/Camera/IMG20261030134110.jpg`，3072×4096，1,686,742 字节；
+- EXIF：`RMX5010 back camera 23mm f/1.8`、ISO 12800、0.3s，MakerNote 为 Oplus
+  APS 数据；
+- 重启后再次拍摄 `IMG20261030134809.jpg`（1,669,711 字节，3072×4096），链路仍可用。
+- 前摄同样跑通：`IMG20261030135104.jpg`，3456×4608，4,042,729 字节，
+  mean≈129；EXIF 前摄 f/2.5、ISO 1600，MakerNote 为 Oplus APS 数据，
+  `completeCapture`/`onApsJpegArrived` 各 1 次，无原生崩溃。
+
+> 画面接近全黑是因为手机平放在桌面、后摄镜头被遮挡；不是预览/算法失败。
+> 前摄正面预览此前已正常，后摄平放时黑屏属于拍摄环境。
+
+### 13.2 本次真正修掉的三个问题
+
+1. **Codec2 启动 SIGABRT**
+   - 不是 OS4 缺 `media.codec`，而是自建 SELinux 域被反向拒绝：
+     `mediacodec`/`mediaswcodec` 对 `oplus_camera_app2` 的 binder `transfer`
+     为 Enforcing，Codec2Client 收到空客户端后 abort。
+   - 增加双向 `call/transfer` 规则后，`default`/`software` Codec2 客户端均可用。
+
+2. **6.070 启动约 5 秒崩溃**
+   - `NoClassDefFoundError: com.oplus.app.OplusHansFreezeManager`：在 APK
+     `classes35.dex` 增加一个最小 stub（`getInstance()` +
+     `requestFastFreeze(Context,int,String)` 返回 0）。
+   - `TypeFaceUtil.a(Context)` 读取 OS4 不存在的
+     `OplusBaseConfiguration.mOplusExtraConfiguration` 触发 NPE；在
+     `TypeFaceUtil` 的 try 区补 `NullPointerException` catch，回落
+     `Typeface.DEFAULT`。
+
+3. **离线相机 callback 为空 / SIGSEGV**
+   - `hal_camera_default` 反向调用 `oplus_camera_app2` 的 binder 被拒，事务返回
+     `Operation not permitted`，provider 看到空 descriptor，
+     `openOfflineSession` 报 `ILLEGAL_ARGUMENT`，随后
+     `configureOfflineStreams` 空指针 SIGSEGV。
+   - 增加 `hal_camera_default` 与 `oplus_camera_app2` 的双向
+     `binder { call transfer }`。
+   - 注意：`ksud sepolicy check` 会把策略文件里的 `#` 注释当规则解析，导致整份
+     策略校验失败、开机不建域。策略文件必须保持纯规则，不能写注释。
+
+### 13.3 预览 HDR
+
+- 没有保留 `persist.camera.override_*` 降级；测试时将
+  `persist.camera.override_enable` 设为 `false`，使用原厂默认预览 HDR。
+- 该状态下完整拍摄仍成功，说明之前的黑预览是镜头被桌面遮挡，而不是 P010
+  预览格式失效。`SnapAlloc` 的格式日志只作为观察项，不再作为黑屏结论。
+
+### 13.4 持久化
+
+- `camera/sepolicy.rules`：加入 `mediacodec`、`mediaswcodec`、
+  `hal_camera_default` 三组双向 binder 规则，纯规则无注释；
+- 模块 APK 更新为 `OplusCamera_hans2_signed.apk`：
+  SHA-256 `1b5481edc3132dcfc2a413a965fa0cddb7ae38614e3aab1a3185b8af36ee7a40`；
+- 模块 `camera/libvndksupport.so`（5,776 字节）与
+  `camera/lib2DSlender.so`（1,453,928 字节）作为数据区 lib 源；
+- `camera_fix.sh` 的 `camera_post_boot` 新增 `camera_fix_data_app_libs`，
+  开机后把上述两个库复制到当前 `/data/app/.../com.oplus.camera-*/lib/arm64`；
+- 重启后已实测：SELinux 规则生效、数据区 APK 保留、库自动复制、完整拍摄成功。
+
+### 13.5 尚未逐项验收
+
+- 前后摄 UI 切换按钮（本次前摄用 `CAMERA_FACING=1` intent 启动）；
+- 人像/夜景/长焦/超广/SAT 变焦/录像/慢动作等模式；
+- 相册缩略图跳转（ColorOS gallery 仍是 stub，系统相册能否打开原图需回归）；
+- 其他 Oplus 框架类是否还有缺失（目前只补了已触发的两个 stub）。
+
+已确认可用的是：**后摄 1x 照片模式、前摄照片模式、完整 APS 多帧算法、原生保存、
+重启后保持**。

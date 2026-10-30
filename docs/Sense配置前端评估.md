@@ -144,7 +144,7 @@ KSU 挂载，职责清晰。最终形态进一步把主 hooks 与钱包 hooks �
 ### 6.1 模块结构
 
 ```text
-KSU 模块   rmx5010_fod_bridge（显示名 RMX5010 HyperOS Fix，1.2.0）
+KSU 模块   rmx5010_fod_bridge（显示名 RMX5010 HyperOS Fix，1.3.9）
            FOD 桥、双击亮屏、触控采样率、音频 bind mount、
            IFAA SELinux、钱包锁屏 AppOp、ctl.sh/status
 LSPosed    com.zephiel.sense（唯一模块）

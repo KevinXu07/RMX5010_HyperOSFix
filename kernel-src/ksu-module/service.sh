@@ -18,6 +18,21 @@ if [ "$touch_config_rc" = 0 ]; then
   log "touchDaemon restarted after config patch"
 fi
 
+# ---- QESDK / QAPE: fix seccomp allow-list, stop TZ log spam ----
+. "$MODDIR/qesdk_fix.sh"
+ensure_qesdk_policy
+qesdk_rc=$?
+log "qesdk policy: $qesdk_rc"
+apply_qseelogd_fix
+if [ "$qesdk_rc" = 0 ]; then
+  # post-fs-data normally mounts the policies before these services start;
+  # restart here so a module update without reboot also picks them up.
+  for s in $QESDK_SERVICES; do stop "$s" 2>/dev/null; done
+  sleep 1
+  for s in $QESDK_SERVICES; do start "$s" 2>/dev/null; done
+  log "qesdk services restarted"
+fi
+
 # ---- FOD touch bridge ----
 i=0
 while [ $i -lt 60 ]; do
@@ -183,6 +198,11 @@ apply_ifaa_policy
   sh "$MODDIR/ctl.sh" status-file >> "$LOG" 2>&1
 ) >> "$LOG" 2>&1 &
 
+# OplusCamera default role/runtime permissions after PackageManager has scanned
+# the systemless priv-app mount.
+. "$MODDIR/camera_fix.sh"
+camera_post_boot >> "$LOG" 2>&1 &
+
 # Watch for touchDaemon restarts (gesture state is per-process).
 (
   last_pid=
@@ -196,3 +216,14 @@ apply_ifaa_policy
     sleep 30
   done
 ) >> "$LOG" 2>&1 &
+
+# ---- per-game frame rate override ----
+# game_fps.sh waits for boot_completed, applies the rule once, then watches
+# while the game runs.  This also works if the Sense GameManager hook is not
+# loaded early enough for GameManagerService.updateConfigsForUser().
+if [ -f "$MODDIR/game_fps.sh" ]; then
+  # KernelSU extracts module files with 0644; invoke through sh instead of
+  # relying on the executable bit.
+  sh "$MODDIR/game_fps.sh" >> "$LOG" 2>&1 &
+  log "game fps watcher started"
+fi
