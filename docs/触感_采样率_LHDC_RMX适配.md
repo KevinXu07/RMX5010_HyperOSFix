@@ -189,6 +189,29 @@ op13_fix_haptic_click_effect=2
 op13_fix_haptic_system_effect=4
 ```
 
+### 1.8 HyperOS 私有 ID 全覆盖（2026-10-31）
+
+- 已盘点 OP13/OS4 会下发的 **88 个 Xiaomi 私有 effect ID**：
+  72–98、106、114、157–192、201–217、401–410、10001；
+  `HapticHooks.mapEffect` 对每一个都有 0–12 的 RMX 落点，没有漏项。
+- 未列入的私有 ID 不再原样透传给 HAL（会被静默丢弃），而是：
+  - 0–12 原样保留；
+  - 大于 12 的未知 ID 回退到校准 effect 2，保证有反馈。
+- 尝试把 OS3 donor 的 38 项 `sys.haptic.*` 原版语义表临时写入
+  （`keyboard=7,2`、`flick=5,2`、`tap.normal=3,2` 等），
+  OS4 框架/HAL 没有按这些属性改变实际播放；测试后已清空。
+  说明这台 OS4 端口不能靠原版属性表直接恢复 Xiaomi 波形。
+- 因此“全部效果可用”= **语义全覆盖 + RMX 809 校准波形**；
+  不是 Xiaomi 原始 RTP/波形的逐字节复刻。若要原版波形，需要
+  HyperOS donor 的振动 RTP 资源并通过 RichTap 播放。
+
+当前日志：
+
+```text
+haptic compatibility active: map=1 info=1 scale=1 click=1 strength=2
+```
+
+
 
 
 

@@ -504,7 +504,10 @@ final class HapticHooks {
             case 410: return 6;
 
             case 10001: return 1; // notification long press
-            default: return source;
+            default:
+                // Preserve AOSP 0..12; unknown private IDs still get a
+                // calibrated TICK instead of silently falling through.
+                return source >= 0 && source <= 12 ? source : 2;
         }
     }
 }
