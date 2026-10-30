@@ -550,3 +550,39 @@ APS 拍摄链路；成片由相机自身原生保存，不再使用 JAR 直写�
 
 已确认可用的是：**后摄 1x 照片模式、前摄照片模式、完整 APS 多帧算法、原生保存、
 重启后保持**。
+
+### 13.6 变焦/长焦/超广角阻塞（2026-10-31）
+
+实测 zoom 条拖动本身有效：
+
+```text
+OCAM_ZoomPresenter: CameraTest change zoom: 0.83 -> 0.6
+```
+
+但每次同时出现：
+
+```text
+OplusSatBridge: OPlus transaction code=10015 has no extension target
+OCAM_c2_BaseMode: getIZoomTriggerState, zoom not ready: true
+OCAM_ZoomPresenter: buildPreview, com.oplus.zoom.active: false
+```
+
+结论：不是 UI 不响应，而是 **Oplus SAT bridge 的 vendor transaction 10015
+没有 extension target**，相机因此始终认为 zoom 未 ready，2x/3x/6x/0.6x
+只改 UI 数字，不切物理相机/不改变流。
+
+尝试过：
+
+- stock ColorOS `libcsextimpl.so` + `vendor.oplus.hardware.cameraextension@1.0.so`
+  / `-V1-ndk.so` 放入模块 overlay：cameraserver 可启动，但 10015 仍无 target。
+- stock `libcameraservice.so` + `libcamera_client.so` bind mount：与 OS4
+  `libandroid_runtime` ABI 不兼容，`app_process` 报
+  `CameraBase<...>::getCameraInfo` 符号缺失，已立即回退并重启恢复。
+- 当前模块已恢复 OS4 `libcsextimpl.so`（SHA-256 `6995cba2...`），设备
+  boot_completed=1、cameraserver 正常。
+
+要真正修复 zoom/SAT，需要给 `libsatbridge.so` 补一个可用的
+`CameraServiceExtFactory`/`CameraServiceExtImpl::onTransact` 扩展目标，
+或使用与 OS4 cameraserver/client ABI 匹配的 stock 相机服务闭包；
+仅换 `libcsextimpl`/cameraextension 库不够。
+

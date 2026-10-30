@@ -107,8 +107,8 @@ set_haptic() {
     0.[3-9]|1.[0-2]|1) settings put global "$HAPTIC_SCALE_KEY" "$value" ;;
     *) log "invalid haptic scale: $value"; return 1 ;;
   esac
-  fifo=$(awk -v s="$value" 'BEGIN { if (s < 0.3) s = 0.3; if (s > 1.0) s = 1.0; printf "%d", 8200 * s }')
-  direct=$(awk -v s="$value" 'BEGIN { if (s < 0.3) s = 0.3; if (s > 1.0) s = 1.0; if (s < 0.4) s = 0.4; printf "%d", 1280 * s }')
+  fifo=$(awk -v s="$value" 'BEGIN { if (s < 0.3) s = 0.3; if (s > 1.0) s = 1.0; printf "%d", 600 + 7600 * (s - 0.3) / 0.7 }')
+  direct=$(awk -v f="$fifo" 'BEGIN { d = 1280 * f / 8200; if (d < 200) d = 200; printf "%d", d }')
   if [ -e /sys/class/qcom-haptics/fifo_vmax ]; then
     echo "$fifo" > /sys/class/qcom-haptics/fifo_vmax 2>/dev/null
     echo "$direct" > /sys/class/qcom-haptics/vmax 2>/dev/null

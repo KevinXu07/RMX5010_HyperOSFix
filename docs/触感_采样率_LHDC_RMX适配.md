@@ -196,9 +196,10 @@ op13_fix_haptic_system_effect=4
   `magnitude=0x7fff`，所以之前滑条实际没效果。
 - 真正可写的是 `/sys/class/qcom-haptics/fifo_vmax`（custom effect）、
   `vmax`/`cl_vmax`（direct/primitive）。实测：
-  - scale 0.3 → `fifo_vmax=2460`、`vmax=cl_vmax=512`
+  - scale 0.3 → `fifo_vmax=600`、`vmax=cl_vmax=200`
   - scale 1.0 → `fifo_vmax=8200`、`vmax=cl_vmax=1280`
-  - HAL 日志：`Set Vmax to 2460 mV` / `Set Vmax to 8200 mV`
+  - HAL 日志：`Set Vmax to 600 mV` / `Set Vmax to 8200 mV`
+  - 0.3–1.0 线性映射，范围约 13.7 倍；之前最小 2460mV 所以变化不明显
 - `ctl.sh set-haptic` 同时写 Settings.Global 和三个 vmax 节点；
   `service.sh` 每 2 秒读 `op13_fix_haptic_scale`，变化时重新应用，
   所以开机、UI 滑条和 adb 改值都能落到真实振幅。
