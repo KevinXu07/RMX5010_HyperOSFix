@@ -771,15 +771,64 @@ cameraserver 同时打印 `DataSpace override not allowed for format 0x23`。
 
 剩余限制：
 
-- 超级文本：进入模式时 `DocDetector.<clinit>` 加载
-  `libXDocProcessSDK-jni.qti.so` 返回 `JNI_ERR`。设备只有通用
-  `libXDocProcessSDK-jni.so`，用 `.qti` 别名加载时 `JNI_OnLoad` 拒绝；
-  这是 OCR SDK 的 Qualcomm 专用变体缺失，当前未修。
-- 延时摄影：录制能开始，但停止时 `MediaRecorder stop failed: -1007`，
-  `VCP_RECORD_FILE_IS_INVALID`，pending MP4 被删除；需要进一步查
-  timelapse 编码器/视频服务。
 - 全景：UI 正常，实际拍摄需要平移手机，桌面平放条件下未完成。
 - 星空/移轴：未逐项实拍验收。
 
 已验证可用：0.6x/1x/2x/3x/6x、前摄、后摄人像、夜景、街拍、高像素、
-电影、多景录像、慢动作、长曝光、专业模式、普通录像、相册缩略图。
+电影、多景录像、慢动作、长曝光、专业模式、普通录像、相册缩略图、
+超级文本、延时摄影。
+
+### 13.12 超级文本已修复（2026-10-31）
+
+进入超级文本时 `DocDetector.<clinit>` 调用
+`com.common.Util.loadJNILibrary("XDocProcessSDK-jni")`。JNI 库的
+`JNI_OnLoad` 会 `dlopen("libSuperTextWrapper.so")`，而 unit SDK jar 的
+`PathClassLoader` 命名空间只搜索数据应用的 `nativeLibraryDir`，不搜索
+`/system_ext/lib64`，因此报：
+
+```text
+JniAPIs: JNI_OnLoad, error: dlopen failed: library "libSuperTextWrapper.so" not found
+```
+
+修复分两步：
+
+1. 模块 `camera_fix_data_app_libs` 在开机时把
+   `libXDocProcessSDK-jni.so`、`libXDocProcessSDK.so`、
+   `libSuperTextWrapper.so`、`libYTCommon.so` 复制到当前
+   `/data/app/.../lib/arm64`。wrapper 的依赖和 libc++ 符号均能从应用
+   lib 目录解析，JNI_OnLoad 通过。
+2. XDoc 的 OpenCL 预览路径 `SetInputTexture` 在 OS4 上返回 16
+   （GL/OpenCL 纹理共享失败），SDK 随后对空 buffer 解引用并 SIGSEGV。
+   Sense `CameraSuperTextHooks` 把
+   `SuperTextHelper.FindQuadByTextureNative` 的返回值改为空串，
+   `DocDetectorImpl.FindQuadByTexture("")` 返回内置空结果；捕获仍走
+   CPU 的 `detectTextByByteNative`。
+
+实测进入模式不再崩溃，拍摄保存
+`IMG20261031052204.jpg`（1,116,364 B，3072×4096）；LSPosed 日志：
+`RMX5010HyperOSFix: super text preview quad disabled (GPU path unsafe)`。
+限制：实时文档框预览关闭，文字提取/拍摄走 CPU。
+
+### 13.13 延时摄影已修复（2026-10-31）
+
+两个独立问题：
+
+1. OS4 的 `android.media.ImageReader` 删除了 `nativeGetConsumer`，
+   `ApsUtils.getConsumerPtr` 反射抛 `NoSuchMethodException` 并返回 0，
+   APS 视频适配器每帧丢帧。Sense `CameraTimeLapseHooks` 在 unit SDK 的
+   `PathClassLoader` 加载 `ApsUtils` 时挂 hook，直接读取
+   `mNativeContext` 指向的 `JNIImageReaderContext`：24 字节 `List` 之后
+   offset 24 是 `sp<BufferItemConsumer> mConsumer`，offset 32 是
+   `sp<IGraphicBufferProducer> mProducer`，返回 offset 24 的指针。
+2. `camera_unit_config` 的
+   `mode_type_feature_max_video_size.fastvideo_mode.*.hyper_lapse`
+   配置为 2560×1920/2560×1440，而移植机的 APS 输入 buffer 是
+   1920×1440，原生管线持续报
+   `APSPreviewManager::dispatchInputData input buffer size(1920x1440) role 100 mismatch`，
+   编码器 `Qin:0`、muxer 停在 `INITIALIZED`，没有 MP4。模块把
+   `fastvideo_mode` 的 `rear_main`/`rear_wide`/`rear_sat`
+   `hyper_lapse` 单变量改为 1920×1440 后，APS 尺寸匹配。
+
+实测 `VID20261031054956.mp4`（239,400 B，HEVC 1920×1080，自动倍速
+0.43 s）；`OCAM_VideoSaver addVideoToMediaStore` 生成缩略图并
+`Video Flie Save End`，无 APS 尺寸/muxer/VCP 错误。

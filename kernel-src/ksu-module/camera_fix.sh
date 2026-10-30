@@ -329,15 +329,23 @@ ensure_camera_port() {
 
 camera_fix_data_app_libs() {
   # The 6.070 update is installed under /data/app.  PackageManager extracts
-  # only the APK's own libraries there, so the Oplus shim and the ODM
-  # 2DSlender library must be copied into the current randomized lib dir.
+  # only the APK's own libraries there, so the Oplus shim, the ODM 2DSlender
+  # library and the XDoc/SuperText chain must be copied into the current
+  # randomized lib dir.  The unit.sdk.jar classloader namespace only searches
+  # the app's nativeLibraryDir, not /system_ext/lib64, and XDoc's JNI_OnLoad
+  # dlopens libSuperTextWrapper.so by name.
   apk=$(pm path com.oplus.camera 2>/dev/null | sed -n 's/^package://p' | head -1)
   [ -n "$apk" ] || return 1
   libdir=$(dirname "$apk")/lib/arm64
   [ -d "$libdir" ] || return 0
-  for lib in libvndksupport.so lib2DSlender.so; do
+  for lib in libvndksupport.so lib2DSlender.so \
+             libXDocProcessSDK-jni.so libXDocProcessSDK.so \
+             libSuperTextWrapper.so libYTCommon.so; do
     [ -f "$CAM_DIR/$lib" ] || continue
-    cp -f "$CAM_DIR/$lib" "$libdir/$lib" 2>/dev/null || continue
+    for try in 1 2 3; do
+      cp -f "$CAM_DIR/$lib" "$libdir/$lib" 2>/dev/null && break
+      sleep 1
+    done
     chmod 0755 "$libdir/$lib" 2>/dev/null
     chown 0:0 "$libdir/$lib" 2>/dev/null
   done

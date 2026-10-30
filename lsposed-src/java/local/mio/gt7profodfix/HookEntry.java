@@ -75,6 +75,16 @@ public final class HookEntry implements IXposedHookLoadPackage {
             } catch (Throwable error) {
                 HookLog.error("OplusCamera gallery hook installation failed", error);
             }
+            try {
+                CameraSuperTextHooks.install(param.classLoader);
+            } catch (Throwable error) {
+                HookLog.error("OplusCamera super-text hook installation failed", error);
+            }
+            try {
+                CameraTimeLapseHooks.install(param.classLoader);
+            } catch (Throwable error) {
+                HookLog.error("OplusCamera time-lapse hook installation failed", error);
+            }
         }
     }
 }
