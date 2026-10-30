@@ -702,3 +702,27 @@ cameraserver 同时打印 `DataSpace override not allowed for format 0x23`。
 
 已验证可用：0.6x/1x/2x/3x/6x、前摄、后摄人像、夜景、高像素、街拍、
 电影、多景录像（录制成功，finalize 待修）、慢动作、普通录像、完整 APS。
+
+### 13.9 专业模式补充诊断（2026-10-31 后续）
+
+专业模式继续排查结果：
+
+- HAL 侧正常：`takePicture mRequestNum: 4`、`captureBurst request to HAL`、
+  `onHalPictureImageArrived`，4 帧 `pictureProcess` 都到了。
+- APS 侧没有对应 pipeline：
+  `APSProcPipeline getPipelinesList() should not run here`、
+  `APSCaptureAlgoTriggerDecision captureAlgoTriggerMode is nullptr`，
+  `ApsParameters` 还主动 `remove key: capture_algo_list`。
+  应用生成了 `newImage, jpeg` 和缩略图，但 APS 永远不回调
+  `onApsJpegArrived`，所以没有 `completeCapture`/`Picture Save End`。
+- 曾用 Sense hook 把专业模式 `getSupportFunction("type_still_capture_jpeg")`
+  强制为 true，试图走 direct-JPEG；HAL/APS 仍没有完成保存，已回退该 hook，
+  当前设备仍使用只含慢动作 hook 的 release Sense APK。
+- 曾把 `professional_case` 的 `capture_raw`/`raw_output`/`capture_raw_dol`
+  去掉测试，仍未保存；配置已恢复原样。
+- 曾临时卸载 `com.coloros.gallery3d` 导致 `Storage` 的
+  `PackageManager$NameNotFoundException`；已用 v2 重签 stub 恢复包名，
+  但 stub 仍是空 activity，缩略图不会打开查看器。
+
+结论：专业模式需要补 ProfessionalMode 的 APS pipeline/trigger 配置，
+属于 APS 服务/配置层，不是单纯补库或换 surface 能解决。
