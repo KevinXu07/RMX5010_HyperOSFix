@@ -59,8 +59,8 @@ final class HapticHooks {
     /**
      * HyperOS sends the Xiaomi keyboard/settings feedback as a 75-79 ms Step.
      * A sustained Step on this LRA reads as a rotor-like buzz instead of a
-     * crisp click. Rewrite short touch Steps to a 12 ms one-shot before the
-     * HAL sees them; VibrationScaler still applies the user's strength.
+     * crisp click. Rewrite short touch Steps to the HAL's calibrated effect
+     * (default TICK/2, 448 B @ 24 kHz); the 12 ms raw Step is only a fallback.
      */
     private static int hookTouchStepEffects(ClassLoader loader) {
         Class<?> service = Reflect.findClass(loader,
@@ -107,20 +107,46 @@ final class HapticHooks {
                             if (duration < 30 || duration > 90) {
                                 return;
                             }
-                            VibrationEffect click = VibrationEffect.createOneShot(
-                                    12, VibrationEffect.DEFAULT_AMPLITUDE);
+                            int effectId = clickEffectId();
+                            VibrationEffect click = effectId >= 0
+                                    ? VibrationEffect.createPredefined(effectId)
+                                    : VibrationEffect.createOneShot(
+                                            12, VibrationEffect.DEFAULT_AMPLITUDE);
                             param.args[effectIndex] =
                                     CombinedVibration.createParallel(click);
-                            HookLog.once("haptic-touch-step-" + duration,
-                                    "haptic touch step " + duration
-                                            + "ms -> 12ms click (usage="
-                                            + usage + ")");
+                            HookLog.once("haptic-touch-step-" + duration
+                                            + "-" + effectId,
+                                    "haptic touch step " + duration + "ms -> "
+                                            + (effectId >= 0
+                                            ? "effect=" + effectId
+                                            : "12ms step")
+                                            + " (usage=" + usage + ")");
                         } catch (Throwable error) {
                             HookLog.once("haptic-touch-step-error",
                                     "haptic touch step rewrite failed: " + error);
                         }
                     }
                 });
+    }
+
+    /**
+     * RMX 809 HAL carries calibrated 8-bit/24 kHz effect files for IDs 0..5.
+     * Default to TICK (2); 4 (POP) and 5 (HEAVY_CLICK) are heavier. Set the
+     * global to -1 to fall back to the 12 ms raw Step.
+     */
+    private static int clickEffectId() {
+        Context context = ModuleConfig.systemContext();
+        if (context == null) {
+            return 2;
+        }
+        try {
+            String raw = ModuleConfig.getString(context,
+                    ModuleConfig.HAPTIC_CLICK_EFFECT, "2");
+            int value = Integer.parseInt(raw.trim());
+            return Math.max(-1, Math.min(5, value));
+        } catch (Throwable ignored) {
+            return 2;
+        }
     }
 
     /**

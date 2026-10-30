@@ -106,33 +106,53 @@ scale=0.8 -> 0.74
 
 ### 1.6 2026-10-30：键盘/触控 Step 波形修正（参考一加13）
 
-问题不是振幅，而是 HyperOS/MIUI_SDK 键盘发出 **75ms 持续 Step**。LRA
-被持续驱动时听起来像转子马达，无论强度怎么调都不线性。
+问题不是振幅，而是 HyperOS/MIUI_SDK 键盘发出 **75ms 持续 Step**。继续往
+HAL/驱动层看：
+
+- AIDL `android.hardware.vibrator.IVibrator/default` 由
+  `vendor.oplus.hardware.vibrator-service` 提供，服务环境是
+  `RICHTAP_DEVICE_PATH=/dev/awinic_haptic`；
+- Step 路径在 HAL 日志里是
+  `aidl_vibrator: Vibrator on for timeoutMs: 75` + `set amplitude`，
+  驱动侧是恒定数据 + 固定 brake（约 5.7–14ms），所以持续驱动仍然像转子；
+- 预置 effect 0..5 则走 809 校准数据：
+  `perform effect 2` → `custom data 2 length 448, play-rate 24000 Hz`，
+  `perform effect 4` → `length 395`，effect 5 → `length 1454`，
+  并带 Vmax/brake 参数。`/odm/etc/vibrator/809/def/effect_*.bin` 是
+  8-bit/24kHz 的平滑包络波形，不是恒定正弦。
 
 参考 `os4/external/OP13HyperOSFix/upstream/oneplus13_hyper_haptics_0.8.8`
-的做法：在 system_server 下发 HAL 前改写效果，而不是只改振幅。RMX 没有
-OP13 的 `IOplusVibrator`/RTP 资源，但可以直接把短 Step 改成一次短脉冲：
+在 system_server 下发 HAL 前改写效果的做法，RMX 这边改为：
 
 - `HapticHooks.hookTouchStepEffects()` hook
   `VibratorManagerService.vibrateInternal`；
-- 对总时长 **30–90ms** 的 Step（键盘 75ms、设置预览 45/67/79ms）
-  替换为 `VibrationEffect.createOneShot(12, DEFAULT_AMPLITUDE)`；
-- 振幅仍由 `VibrationScaler` 和 `op13_fix_haptic_scale` 缩放；
+- 对总时长 **30–90ms** 的 Step（键盘 75ms、设置预览 45/67/79ms），
+  默认替换为 **校准预置 effect 2（TICK，448B@24kHz）**；
+- 可通过 `op13_fix_haptic_click_effect` 切换：
+  - `2` = TICK（默认，短促）
+  - `4` = POP（稍厚）
+  - `5` = HEAVY_CLICK（更重）
+  - `-1` = 回退 12ms 裸 Step
 - 时长只按效果时长过滤，不依赖 OEM 的 usage 编号（OS4 的 usage 4
   在 dumpsys 中显示为 “unknown usage”）。
 
 实测：
 
 ```text
+settings put global op13_fix_haptic_click_effect 2
 cmd vibrator_manager synced -f -B -u 4 oneshot 75 255
-→ played: Step=12ms
-→ RMX5010HyperOSFix: haptic touch step 75ms -> 12ms click (usage=4)
+→ played: Prebaked=TICK(...)
+→ RMX5010HyperOSFix: haptic touch step 75ms -> effect=2 (usage=4)
+
+settings put global op13_fix_haptic_click_effect 4
+→ played: Prebaked=POP(...)
+→ haptic touch step 75ms -> effect=4 (usage=4)
 ```
 
 Sense APK 已重新构建并安装，system_server 日志：
 `haptic compatibility active: map=1 info=1 scale=1 click=1`。
-实际键盘手感需要用户打字确认；若偏弱可把 12ms 调到 15–20ms，若仍偏硬则
-继续缩短或改用 HAL 的 `effect_2/3.bin` 预置波形。
+用户可先用默认 `2` 打字；若想更厚可切 `4`，想更重切 `5`，想对比旧方案切 `-1`。
+
 
 
 ## 2. 触控采样率（已修复）
