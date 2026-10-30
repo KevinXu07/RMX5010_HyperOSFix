@@ -832,3 +832,42 @@ JniAPIs: JNI_OnLoad, error: dlopen failed: library "libSuperTextWrapper.so" not 
 实测 `VID20261031054956.mp4`（239,400 B，HEVC 1920×1080，自动倍速
 0.43 s）；`OCAM_VideoSaver addVideoToMediaStore` 生成缩略图并
 `Video Flie Save End`，无 APS 尺寸/muxer/VCP 错误。
+
+### 13.14 星空/多景录像剩余阻塞与移轴验收（2026-10-31）
+
+移轴已实拍验收：`IMG20261031061513.jpg`，423,897 B，2304×4096；
+`TiltShift` 预览 `bokehPreview_process`/`tiltShiftPreview_process`
+正常，保存走普通 JPEG 流程。
+
+星空仍不可用。进入星空模式后快门请求 `mRequestNum: 15`、
+`mOfflineNightExpTime: 2046`，原生 APS 报：
+
+```text
+APSCaptureAlgoTriggerDecision.cpp: getCaptureAlgoTriggerMode() not found
+getAllPipelineNodes() captureAlgoTriggerMode is nullptr!
+OCAM_CaptureFailInfoUtil: handleMessage, msg: 1
+```
+
+即 `ALGO_STARMODE` 的 APS trigger/pipeline 在移植配置里不存在。
+尝试过 `ApsDataConvert.getApsModeName`、`ApsParameters.set`、
+`MetaItemInfo.setParameter`、`CameraRequestTag`/`ApsRequestTag`
+把 `star_capture_mode`/`starry` 改成 `common`，hook 均安装成功，
+但原生 trigger 仍按 starry 查找，未生成 JPEG。需要原厂星空 APS
+配置/trigger 节点，Java 层无法补齐。
+
+多景录像仍不可用。录制能开始并生成
+`.pending-<ts>-VID....mp4`，但文件只有 `ftyp`/`mdat`、没有 `moov`，
+是不可播放的裸流；停止时日志：
+
+```text
+E/om.oplus.camera: Failed to get interface:
+vendor.xiaomi.hardware.videoservice.IVideoService/default
+```
+
+该服务是 Xiaomi 的 VPP/codec 资源管理 AIDL
+（`canStartVideoCodec`、`clearCodecInfo`、`getRestCodecResources` 等），
+当前移植的 vendor 没有注册该服务，原生 muxer 无法完成 finalize。
+重命名 pending 文件并 `content insert` 只能让相册看到条目，MP4 仍无
+`moov`、无法播放；不能作为修复。需要补齐该 vendor 服务。
+
+全景仍需要实际平移手机，桌面平放条件下未完成。
