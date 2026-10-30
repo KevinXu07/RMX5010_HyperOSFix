@@ -726,3 +726,32 @@ cameraserver 同时打印 `DataSpace override not allowed for format 0x23`。
 
 结论：专业模式需要补 ProfessionalMode 的 APS pipeline/trigger 配置，
 属于 APS 服务/配置层，不是单纯补库或换 surface 能解决。
+
+### 13.10 专业模式已修复（2026-10-31）
+
+13.9 的 APS pipeline 缺失，根因在 `ApsDataConvert` 的 capture mode 映射：
+`professional_mode` 先尝试 `professionalFull`，再尝试 `master`，最后回退
+`professional`；这三个 pipeline 在当前移植的 APS 配置里都没有可用节点，
+所以 `APSProcPipeline.getPipelinesList()` 为空、`captureAlgoTriggerMode`
+为 nullptr，APS 永远不回调。
+
+修复：patch `com.oplus.camera.unit.sdk.jar` 的 `ApsDataConvert`，让
+`professional_mode` 直接返回 `common`（普通照片模式使用的 APS capture
+mode）。只改专业模式映射，不影响 photo/night/portrait 等模式。
+
+- 模块内路径：`system/system_ext/framework/com.oplus.camera.unit.sdk.jar`
+- SHA-256：`e3924a985ec7a3b84b311655bee7aa20909e1a503c833154afad5445fb0e32e7`
+- 原厂 jar 备份：`/data/local/tmp/unit.sdk.orig.jar`（本机），仓库源文件
+  可用 16.0.7.201 原包恢复。
+
+实测：
+
+- 专业模式：`IMG20261031043042.jpg`，1,264,390 B，3072×4096；
+  `onApsJpegArrived`、`completeCapture success: true`、
+  `Picture Save End` 全部出现。
+- 回归：普通照片 2x `IMG20261031043123.jpg` 正常保存；变焦/夜景/人像等
+  映射未改动。
+
+注意：专业模式现在走 `common` APS pipeline，而不是原厂专用的
+`professionalFull` pipeline；ISO/快门/EV/WB 等手动 metadata 仍随请求
+传入，但原厂 professionalFull 的专属后处理在当前移植上不可用。
