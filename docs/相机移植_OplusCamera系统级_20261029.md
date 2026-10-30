@@ -541,15 +541,22 @@ APS 拍摄链路；成片由相机自身原生保存，不再使用 JAR 直写�
   开机后把上述两个库复制到当前 `/data/app/.../com.oplus.camera-*/lib/arm64`；
 - 重启后已实测：SELinux 规则生效、数据区 APK 保留、库自动复制、完整拍摄成功。
 
-### 13.5 尚未逐项验收
+### 13.5 验收状态
 
-- 前后摄 UI 切换按钮（本次前摄用 `CAMERA_FACING=1` intent 启动）；
-- 人像/夜景/长焦/超广/SAT 变焦/录像/慢动作等模式；
-- 相册缩略图跳转（ColorOS gallery 仍是 stub，系统相册能否打开原图需回归）；
-- 其他 Oplus 框架类是否还有缺失（目前只补了已触发的两个 stub）。
+已确认可用（2026-10-31 实机）：
 
-已确认可用的是：**后摄 1x 照片模式、前摄照片模式、完整 APS 多帧算法、原生保存、
-重启后保持**。
+- 后摄 0.6x / 1x / 2x / 3x / 6x 变焦，0.6x 会切到 `rear_wide` 物理相机；
+- 前后摄 UI 切换按钮；
+- 前摄照片 3456×4608；
+- 人像模式（前摄）拍摄成功；
+- 录像模式 MP4 保存成功；
+- 完整 APS 多帧算法、原生保存、重启后保持。
+
+尚未逐项验收：
+
+- 慢动作、专业模式、全景、街拍/更多里的其余子模式；
+- 相册缩略图跳转（ColorOS gallery 仍是 stub）；
+- 其他 Oplus 框架类是否还有缺失。
 
 ### 13.6 变焦/长焦/超广角阻塞（2026-10-31）
 
@@ -585,4 +592,66 @@ OCAM_ZoomPresenter: buildPreview, com.oplus.zoom.active: false
 `CameraServiceExtFactory`/`CameraServiceExtImpl::onTransact` 扩展目标，
 或使用与 OS4 cameraserver/client ABI 匹配的 stock 相机服务闭包；
 仅换 `libcsextimpl`/cameraextension 库不够。
+
+### 13.7 变焦/SAT 已修复（2026-10-31 最终结论）
+
+13.6 的判断不完整：`libsatbridge.so` 的扩展目标其实已经能创建，真正失败点是
+**`libcsextimpl.so` 的 `dlopen(RTLD_NOW)` 因缺少 NEEDED 依赖而返回 NULL**。
+原 shim 只在 `dlopen` 失败时打印 `dlopen OPlus extension failed`，但当时日志
+缓冲区已滚动，只留下后续的 `has no extension target`，导致误判为 factory 问题。
+
+用带完整日志的临时 shim 复现后，依次缺：
+
+```text
+vendor.oplus.hardware.performance-V1-ndk.so
+android.hardware.camera.common-V1-ndk.so
+liboplus-uah-client.so -> vendor.oplus.hardware.urcc-V1-ndk.so
+vendor.oplus.hardware.cameraextension@1.0.so
+vendor.oplus.hardware.cameraextension-V1-ndk.so
+vendor.oplus.hardware.sendextcamcmd-V2-ndk.so
+```
+
+这些库在 201 原厂包的 `/odm/lib64`、`/vendor/lib64` 或本地提取物中都有；
+把它们放进模块的 `system/system_ext/lib64/`（cameraserver 的 default
+namespace 可见）即可。补齐后：
+
+```text
+OplusSatBridge: OPlus transaction code=10015 status=0 flags=17
+OCAM_ZoomUIManager: CameraTest switch to wide camera
+```
+
+不再出现 `has no extension target`。实机验证：
+
+- 0.6x：`change zoom: 0.6`，切 `rear_wide`（physicalCameraId 2），
+  SAT 同时取 `rear_wide` 1728×1296 与 `rear_main` 4096×3072；
+- 2x：主摄数字变焦，`IMG20261031030203.jpg` 3072×4096；
+- 3x/6x：长焦 73mm，`IMG20261031030208.jpg` / `IMG20261031030213.jpg`；
+- 前摄：`IMG20261031030636.jpg` 3456×4608；
+- 人像：`IMG20261031030705.jpg`；
+- 录像：`VID20261031030816.mp4`，MediaStore 扫描成功；
+- 重启后再次验证 0.6x/2x/6x 仍正常。
+
+新增库（模块 `system/system_ext/lib64/`）：
+
+| 库 | 大小 | SHA-256 |
+|---|---:|---|
+| `vendor.oplus.hardware.performance-V1-ndk.so` | 282104 | `1e905112c9945309d34e9a4c07849d587eaeacf8dd3fe379c81fc1360456d392` |
+| `vendor.oplus.hardware.cameraextension@1.0.so` | 77576 | `b20399eb443d4ce9b601a75823ed8c51ae78e5982ac01c828f49777b510c76e4` |
+| `vendor.oplus.hardware.cameraextension-V1-ndk.so` | 36072 | `c56ca6e07f307179b9f5ee56aaec079bd5c7a93ccad103d4901aecd988332662` |
+| `vendor.oplus.hardware.sendextcamcmd-V2-ndk.so` | 52488 | `31b5f4683a909c9674a004b00332c704b4ff4c6b6d69fde7bccb65993ab58816` |
+| `android.hardware.camera.common-V1-ndk.so` | 51840 | `d7476170457ff79152c541aa5e0dcbf0936615010fd46b72b8d94561acbaed2e` |
+| `liboplus-uah-client.so` | 201504 | `ca7fff1a6ad1e50179bd1ef95b51c13e246e137c6775b20a513c52516b87ac26` |
+| `vendor.oplus.hardware.urcc-V1-ndk.so` | 151848 | `a2928fc51fb32ae50e51f34b4f35bfbdc37fa025bcfdc525100187f717dba7f0` |
+
+注意：
+
+- `vendor.qti.camera.provider-service_64` 里的
+  `PrepareSlaveSkipInfo: oplus_set_slave_skip_info is NULL` 是 HAL 先尝试
+  `oplus_` 前缀、再回退到 `camera.oemlayer.so` 已导出的
+  `set_slave_skip_info` 的正常回退日志，不是阻塞点。
+- 0.6x 照片的 EXIF `LensModel` 可能仍写 73mm（Oplus 写入的是主/长焦元数据），
+  但实际 capture surface 同时包含 `rear_wide` physicalId 2，SAT 融合成立。
+- stock ColorOS `libcsextimpl.so` 仍不建议替换：它的 `getCameraServiceExt`
+  依赖 stock `libcameraservice` 的工厂初始化，和 OS4 cameraserver 混用会返回
+  NULL；保持 OS4 `libcsextimpl.so`（`6995cba2...`）+ 上述依赖即可。
 

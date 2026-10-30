@@ -1,6 +1,6 @@
 id=rmx5010_fod_bridge
 name=RMX5010 HyperOS Fix
-version=1.5.1
-versionCode=18
+version=1.5.2
+versionCode=19
 author=KevinXu07
-description=RMX5010 HyperOS 移植修复统一 Root 模块：FOD 触摸桥、双击亮屏、触控采样率配置、音频 appname 补丁、IFAA SELinux、钱包锁屏刷卡授权、QESDK/QAPE 性能服务修复、游戏帧率覆盖、微信 fake CameraX 库屏蔽、SurfaceFlinger 触摸升帧、OplusCamera 6.070.45 原厂包完整 APS 算法（前/后摄原生保存、HDR/离线 Bayer2Yuv）
+description=RMX5010 HyperOS 移植修复统一 Root 模块：FOD 触摸桥、双击亮屏、触控采样率配置、音频 appname 补丁、IFAA SELinux、钱包锁屏刷卡授权、QESDK/QAPE 性能服务修复、游戏帧率覆盖、微信 fake CameraX 库屏蔽、SurfaceFlinger 触摸升帧、OplusCamera 6.070.45 原厂包完整 APS 算法（前/后摄原生保存、HDR/离线 Bayer2Yuv、SAT 变焦 0.6x/1x/2x/3x/6x、前摄/人像/录像）
