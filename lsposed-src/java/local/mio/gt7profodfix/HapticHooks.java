@@ -45,14 +45,16 @@ final class HapticHooks {
         int infoHooks = hookSupportedEffects(loader);
         int scaleHooks = hookScaleFactor(loader);
         int clickHooks = hookTouchStepEffects(loader);
-        if (mapHooks == 0 || infoHooks == 0 || scaleHooks == 0 || clickHooks == 0) {
+        int strengthHooks = hookPrebakedStrength(loader);
+        if (mapHooks == 0 || infoHooks == 0 || scaleHooks == 0
+                || clickHooks == 0 || strengthHooks == 0) {
             HookLog.info("haptic compatibility incomplete: map=" + mapHooks
                     + " info=" + infoHooks + " scale=" + scaleHooks
-                    + " click=" + clickHooks);
+                    + " click=" + clickHooks + " strength=" + strengthHooks);
         } else {
             HookLog.info("haptic compatibility active: map=" + mapHooks
                     + " info=" + infoHooks + " scale=" + scaleHooks
-                    + " click=" + clickHooks);
+                    + " click=" + clickHooks + " strength=" + strengthHooks);
         }
     }
 
@@ -76,6 +78,7 @@ final class HapticHooks {
                     protected void beforeHookedMethod(MethodHookParam param) {
                         int effectIndex = -1;
                         int attrsIndex = -1;
+                        int pkgIndex = -1;
                         int reasonIndex = -1;
                         for (int i = 0; i < param.args.length; i++) {
                             Object arg = param.args[i];
@@ -84,6 +87,9 @@ final class HapticHooks {
                             } else if (arg instanceof VibrationAttributes) {
                                 attrsIndex = i;
                             } else if (arg instanceof String) {
+                                if (pkgIndex < 0) {
+                                    pkgIndex = i;
+                                }
                                 reasonIndex = i;
                             }
                         }
@@ -92,11 +98,14 @@ final class HapticHooks {
                         }
                         VibrationAttributes attrs =
                                 (VibrationAttributes) param.args[attrsIndex];
+                        String opPkg = pkgIndex >= 0
+                                ? (String) param.args[pkgIndex] : null;
                         String reason = reasonIndex >= 0
                                 ? (String) param.args[reasonIndex] : null;
                         int usage = attrs.getUsage();
                         HookLog.once("haptic-vibrate-internal-seen",
                                 "vibrateInternal seen usage=" + usage
+                                        + " pkg=" + opPkg
                                         + " reason=" + reason);
                         try {
                             CombinedVibration original =
@@ -108,13 +117,22 @@ final class HapticHooks {
                             boolean keyboardPattern = reason != null
                                     && (reason.contains("MIUI_SDK")
                                     || reason.contains("pattern_vibration"));
-                            if (!keyboardPattern && (duration < 30 || duration > 90)) {
+                            boolean systemPattern = opPkg != null
+                                    && (opPkg.contains("miui.home")
+                                    || opPkg.contains("launcher")
+                                    || opPkg.contains("systemui"))
+                                    && duration > 90;
+                            boolean longFeedback = duration > 90
+                                    && isFeedbackUsage(usage);
+                            if (!keyboardPattern && !systemPattern && !longFeedback
+                                    && (duration < 30 || duration > 90)) {
                                 return;
                             }
                             if (duration > 500) {
                                 return;
                             }
-                            int effectId = clickEffectId();
+                            int effectId = keyboardPattern
+                                    ? clickEffectId() : systemEffectId();
                             VibrationEffect click = effectId >= 0
                                     ? VibrationEffect.createPredefined(effectId)
                                     : VibrationEffect.createOneShot(
@@ -127,7 +145,8 @@ final class HapticHooks {
                                             + (effectId >= 0
                                             ? "effect=" + effectId
                                             : "12ms step")
-                                            + " (usage=" + usage + ")");
+                                            + " (usage=" + usage
+                                            + " pkg=" + opPkg + ")");
                         } catch (Throwable error) {
                             HookLog.once("haptic-touch-step-error",
                                     "haptic touch step rewrite failed: " + error);
@@ -154,6 +173,91 @@ final class HapticHooks {
         } catch (Throwable ignored) {
             return 2;
         }
+    }
+
+    /**
+     * System UI / Launcher use the same unlabelled 45/67/79 ms Step pattern
+     * for recents and other feedback. 4 (POP) is a single calibrated click
+     * that is less abrupt than the keyboard TICK.
+     */
+    private static int systemEffectId() {
+        Context context = ModuleConfig.systemContext();
+        if (context == null) {
+            return 4;
+        }
+        try {
+            String raw = ModuleConfig.getString(context,
+                    ModuleConfig.HAPTIC_SYSTEM_EFFECT, "4");
+            int value = Integer.parseInt(raw.trim());
+            return Math.max(-1, Math.min(5, value));
+        } catch (Throwable ignored) {
+            return 4;
+        }
+    }
+
+    private static boolean isFeedbackUsage(int usage) {
+        return usage != VibrationAttributes.USAGE_ALARM
+                && usage != VibrationAttributes.USAGE_NOTIFICATION
+                && usage != VibrationAttributes.USAGE_RINGTONE
+                && usage != VibrationAttributes.USAGE_COMMUNICATION_REQUEST
+                && usage != VibrationAttributes.USAGE_MEDIA;
+    }
+
+    private static int scaleToEffectStrength(float scale) {
+        // VibrationEffect effect-strength values: 0=LOW, 1=MEDIUM, 2=HIGH.
+        if (scale < 0.6f) {
+            return 0;
+        }
+        if (scale < 1.0f) {
+            return 1;
+        }
+        return 2;
+    }
+
+    /**
+     * VibrationScaler.scale(VibrationEffect, usage) already receives the
+     * user's system intensity, but prebaked effects only carry a discrete
+     * effect-strength value. Re-apply the Sense slider as LOW/MEDIUM/HIGH so
+     * the strength control also affects calibrated effect files.
+     */
+    private static int hookPrebakedStrength(ClassLoader loader) {
+        Class<?> scaler = Reflect.findClass(loader,
+                "com.android.server.vibrator.VibrationScaler");
+        if (scaler == null) {
+            HookLog.info("VibrationScaler missing; prebaked strength skipped");
+            return 0;
+        }
+        return Reflect.hookNamedMethods(scaler, "scale", new XC_MethodHook() {
+            @Override
+            protected void afterHookedMethod(MethodHookParam param) {
+                if (param.args.length < 2
+                        || !(param.args[0] instanceof VibrationEffect)
+                        || !(param.args[1] instanceof Integer)) {
+                    return;
+                }
+                int usage = (Integer) param.args[1];
+                if (!isFeedbackUsage(usage)) {
+                    return;
+                }
+                Object result = param.getResult();
+                if (!(result instanceof VibrationEffect)) {
+                    return;
+                }
+                int strength = scaleToEffectStrength(feedbackScale());
+                try {
+                    Object adjusted = XposedHelpers.callMethod(
+                            result, "applyEffectStrength", strength);
+                    if (adjusted instanceof VibrationEffect) {
+                        param.setResult(adjusted);
+                        HookLog.once("haptic-prebaked-strength-" + strength,
+                                "haptic prebaked strength=" + strength
+                                        + " (scale=" + feedbackScale() + ")");
+                    }
+                } catch (Throwable ignored) {
+                    // Step-only effects have no effect-strength field.
+                }
+            }
+        });
     }
 
     /**

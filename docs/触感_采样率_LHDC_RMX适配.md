@@ -159,8 +159,36 @@ settings put global op13_fix_haptic_click_effect 4
 ```
 
 Sense APK 已重新构建并安装，system_server 日志：
-`haptic compatibility active: map=1 info=1 scale=1 click=1`。
+`haptic compatibility active: map=1 info=1 scale=1 click=1 strength=2`。
 默认 `2`；想更厚可切 `4`，想更重切 `5`，想对比旧方案切 `-1`。
+
+### 1.7 Launcher/多任务与强度滑条（2026-10-31）
+
+- 从应用上滑多任务时，`com.miui.home` 也会发同样的
+  `[0,45,67,79]ms` 双脉冲 Step（reason 为空，duration 212ms）。
+- 现在除了 `MIUI_SDK/pattern_vibration`，还会把 **任何非通知/铃声/闹钟/
+  媒体类、duration 90–500ms 的反馈 pattern** 改写为校准 effect 4 (POP)；
+  Launcher/SystemUI 的短预置 CLICK 保持校准 effect 0。
+- 强度滑条现在对预置效果也生效：hook
+  `VibrationScaler.scale(VibrationEffect, usage)`，按
+  `op13_fix_haptic_scale` 重新设置 effect strength：
+  - `<0.6` → LIGHT / effect strength 0
+  - `0.6–0.99` → MEDIUM / 1
+  - `>=1.0` → STRONG / 2
+- 实测 `op13_fix_haptic_scale=0.3` → `TICK(LIGHT)`；
+  `1.2` → `TICK(STRONG)`；默认设备值恢复到 `0.8`（MEDIUM）。
+- 合成 212ms 长 pattern 实测：
+  `haptic touch step 212ms -> effect=4 (usage=4)`，随后
+  `haptic prebaked strength=1 (scale=0.7398974)`。
+
+当前默认：
+
+```bash
+op13_fix_haptic_scale=0.8
+op13_fix_haptic_click_effect=2
+op13_fix_haptic_system_effect=4
+```
+
 
 
 
