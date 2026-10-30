@@ -864,13 +864,21 @@ OCAM_CaptureFailInfoUtil: handleMessage, msg: 1
   `usecase_info.sat_photo_case` 少两项 `capture_raw10_fullsize`；
   补回这两项后星空仍报 `captureAlgoTriggerMode nullptr`。
 
-因此星空 pipeline 不在 ODM 配置里，而在原生 APS 扩展
-（`libcsextimpl`/`libAPSClient`/`libAlgoInterface`）中。移植使用的
-OS4 `libcsextimpl.so`（SAT/zoom 需要）没有星空 pipeline；201 的
-`libcsextimpl.so` 在 OS4 上返回 null factory，直接替换会破坏 SAT。
-需要把 201 的星空 pipeline 合并进 OS4 扩展（native 逆向），不是
-增加 JSON/ODM 节点能解决的。设备已恢复发布配置
-（`camera_unit_config` SHA-256 `de4293c3…`）。
+进一步从 201 `system_ext` 解出 stock
+`libcsextimpl.so`（1,470,552 B，SHA-256 `6ed9e214…`）和
+`libAPSClient-cmd-jni-extension.oplus.so`（1,099,512 B，
+`91eb27cb…`）。把 201 stock `libcsextimpl.so` 放进数据应用 lib
+目录后，相机可启动、`OplusSatBridge` 10017/10018 status=0，但星空
+仍报 `captureAlgoTriggerMode nullptr`，未生成 JPEG；已移除该文件
+恢复 OS4 扩展。201 APS extension 的复制被 SELinux 拒绝
+（`Permission denied`），未能在进程内测试；其大小/哈希与设备版本
+不同。
+
+结论：star pipeline 不在 ODM 配置，也不在 201 stock
+`libcsextimpl.so` 的可执行路径中；可能在 201 `libAPSClient`/
+`libsatbridge` 或独立 star lib。需要 native 合并/完整 201 栈，
+且与 OS4 SAT 扩展冲突，不是增加 JSON/ODM 节点能解决的。设备已
+恢复发布配置（`camera_unit_config` SHA-256 `de4293c3…`）并锁屏。
 
 多景录像仍不可用。录制能开始并生成
 `.pending-<ts>-VID....mp4`，但文件只有 `ftyp`/`mdat`、没有 `moov`，
