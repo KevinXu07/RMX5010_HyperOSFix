@@ -443,8 +443,8 @@ final class HapticHooks {
             case 159: return 4;  // FOD ripple
             case 160:
             case 161: return 0;
-            case 162: return 7;  // back gesture start/strong fallback
-            case 163: return 2;  // back gesture quick click
+            case 162: return 5;  // flick (back gesture start)
+            case 163: return 7;  // flick.light (quick back)
             case 164: return 0;
             case 165:
             case 174: return 12; // negative feedback

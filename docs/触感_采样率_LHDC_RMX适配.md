@@ -184,10 +184,30 @@ Sense APK 已重新构建并安装，system_server 日志：
 当前默认：
 
 ```bash
-op13_fix_haptic_scale=0.8
+op13_fix_haptic_scale=1.0
 op13_fix_haptic_click_effect=2
 op13_fix_haptic_system_effect=4
 ```
+
+### 1.9 驱动级振幅与侧滑返回（2026-10-31）
+
+- `VibrationScaler` 的 effect strength 只会改变 dumpsys 标签
+  （LIGHT/MEDIUM/STRONG），QTI HV 对 custom data 仍固定
+  `magnitude=0x7fff`，所以之前滑条实际没效果。
+- 真正可写的是 `/sys/class/qcom-haptics/fifo_vmax`（custom effect）、
+  `vmax`/`cl_vmax`（direct/primitive）。实测：
+  - scale 0.3 → `fifo_vmax=2460`、`vmax=cl_vmax=512`
+  - scale 1.0 → `fifo_vmax=8200`、`vmax=cl_vmax=1280`
+  - HAL 日志：`Set Vmax to 2460 mV` / `Set Vmax to 8200 mV`
+- `ctl.sh set-haptic` 同时写 Settings.Global 和三个 vmax 节点；
+  `service.sh` 每 2 秒读 `op13_fix_haptic_scale`，变化时重新应用，
+  所以开机、UI 滑条和 adb 改值都能落到真实振幅。
+- 侧滑返回按 OS3 donor 的原版语义表调整：
+  - `162`（back gesture start）→ effect 5 `flick`
+  - `163`（quick back）→ effect 7 `flick.light`
+- 当前 scale=1.0（最大 8200mV）；0.3–1.0 线性映射，1.2 因硬件上限
+  仍为 8200mV。
+
 
 ### 1.8 HyperOS 私有 ID 全覆盖（2026-10-31）
 

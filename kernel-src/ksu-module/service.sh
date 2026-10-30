@@ -101,6 +101,24 @@ done
   done
 ) >> "$LOG" 2>&1 &
 
+# ---- haptic amplitude (Sense slider -> QTI HV fifo_vmax) ----
+# VibrationScaler effect-strength only changes the framework label; the QTI
+# HV custom-effect path keeps magnitude=0x7fff. fifo_vmax is the real gain.
+(
+  last=
+  while true; do
+    scale=$(settings get global op13_fix_haptic_scale 2>/dev/null)
+    case "$scale" in
+      ""|null) scale=1.0 ;;
+    esac
+    if [ "$scale" != "$last" ]; then
+      sh "$MODDIR/ctl.sh" set-haptic "$scale" >> "$LOG" 2>&1
+      last=$scale
+    fi
+    sleep 2
+  done
+) >> "$LOG" 2>&1 &
+
 # ---- generic acc_udevid (Xiaomi account uDevId) ----
 # acc_udevid = "ud:" + b64url(sha1(account + fid))[:16], fid from the
 # FindDevice software credential. Runs after user unlock (CE DB appears)
