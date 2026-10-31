@@ -1052,3 +1052,44 @@ listener，但没有改变 muxer 的停止路径。
 新 Sense APK SHA-256 `aa2daad8…`；模块 1.5.7 保持不变。真实
 IVideoService 移植保存在 `wip/multiview-videoservice` 分支，作为后续
 可选增强。
+
+### 13.19 长焦预览黑屏（SAT 切换）与 201 vendor HAL 实验（2026-10-31）
+
+现象：普通照片模式下从 0.6x/1x 切到 3x，只有预览区域黑（UI/快门正常），
+切回或从 2x/6x 切到 3x 基本干净。
+
+日志特征：
+- `ChiX camxmvgsatwrapper UpdatePixelShift() horizonalShift ... exceed limits 0`
+- `OCAM_PreviewProcessor onPreviewCaptureResult, result is null`
+
+统计：1x→3x 最差（单次切换约 22 次 null result），0.6x→3x 约 12 次，
+2x/6x→3x 为 0。SAT（smooth zoom）切换时 mvg_sat 的 pixel shift 超出
+限制，SAT wrapper 返回无效帧，预览 processor 收到 null。不是灭屏保护层
+（“点击屏幕恢复显示”是另一个 overlay，已由 Sense CameraScreenOnHooks
+用 Activity.onResume KEEP_SCREEN_ON + clearFlags 守卫处理）。
+
+已排除/失败的路线：
+1. 201 的 `libcamxoemsatwrapper.so` 与设备同哈希 `73431606…`，替换无意义；
+2. `mvg_sat_config.json` 的 `align_strength_preview` 改为 `[0,0,0]`
+   后 null 日志仍在（1x→3x 22 次、0.6x→3x 12 次）；
+3. 把 preview 配置里的 `rear_sat` 换成 `rear_main` 可消除 null 日志，
+   但 3x 预览变成主摄 FOV（指示器仍显示 3x），不可用；
+4. 201 vendor camera HAL 整包 overlay（`vendor.qti.camera.provider-service_64`
+   + CamX/CHI/qll/camera components，`/vendor/lib64` overlay + provider
+   bind mount）：开机卡第一屏，`init.svc.vendor.camera-provider=restarting`，
+   无法进入系统；移除模块后恢复。结论：201 vendor HAL 与 OS4 的
+   cameraserver/init/vendor 依赖不兼容，不能靠简单 overlay 替换，后续若
+   继续需要整 vendor 分区移植（高风险）。
+
+相册与保屏（本次一并验证并进入 release APK）：
+- `CameraGalleryHooks`：`yn.h1.a` 返回 `com.miui.gallery`，缩略图打开
+  `com.miui.gallery/.activity.ExternalPhotoPageActivity`，已验证；
+- `CameraScreenOnHooks`：相机 Activity onResume 加
+  `FLAG_KEEP_SCREEN_ON`，并拦截 clearFlags 移除请求，70s 保持 Awake；
+- `CameraMuxerHooks`：多景 finalize（见 13.18）。
+
+当前设备状态：1.5.7 正式模块已重装，`/odm/lib64` 的
+`libAlgoInterface.so`（`3ab2dc1b…`）、`libAlgoProcess.so`（`da069a1a…`）、
+`graphics.common-V7-ndk.so`（`a24365bb…`）哈希正确，provider 运行；
+普通照片冒烟 `IMG20261031123744.jpg`（6x 预览正常）。release Sense APK
+SHA-256 `2188ec77…`（含 gallery/muxer/screen-on hooks）。屏幕已锁。
