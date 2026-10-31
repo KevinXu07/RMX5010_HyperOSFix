@@ -1020,3 +1020,35 @@ vendor codec2 的 VPP filter 停止/EOS 路径，不是视频服务本身。下�
 patch 相机 App 的 `RecordProcessor`/`VideoSaver` 在 encoder stop 后强制
 muxer stop，或移植 haotian 的 codec2/VPP 栈。当前设备已恢复 1.5.7
 正式模块/Sense APK。
+
+### 13.18 多景 finalize 修复：Sense CameraMuxerHooks（2026-10-31）
+
+根因：相机 RecordProcessor 的停止路径释放了 HEVC encoder，但 App 的
+`MediaMuxer` 没有 stop；`MPEG4Writer` 只写出 ftyp/mdat，不写 moov，
+所以文件停在 `.pending-...mp4`。真实 IVideoService 的移植（13.17）能让
+服务处理 registerListener/reportCodecStatus/clearCodecInfo 并回调
+listener，但没有改变 muxer 的停止路径。
+
+修复在 Sense（LSPosed，作用域 com.oplus.camera）新增
+`CameraMuxerHooks`：
+- hook `android.media.MediaMuxer` / `MediaRecorder` 构造函数，记录相机
+  进程创建的对象；
+- hook `rj.e0.I(IZ)Z`（RecordProcessor 停止），返回后延迟 1.2s，对仍可
+  stop 的 `MediaMuxer` 调用 `stop()`；MPEG4Writer 写 moov 并 fsync；
+- 把最新的 `.pending-*VID*.mp4` 重命名为 `VID*.mp4`，再用
+  `MediaScannerConnection.scanFile` 写入 MediaStore。
+普通录像/延时使用 MediaRecorder 或已自行 stop，强制 stop 抛
+`IllegalStateException` 被捕获，不改变原路径。
+
+实机验证（1.5.7 模块 + 新 Sense release APK）：
+- `VID20261031095159.mp4`，603,795 B，1080×1920 HEVC + AAC，
+  moov 已写入，MediaStore duration 3019 ms；
+- `VID20261031095717.mp4`，679,297 B，4092 ms；
+- `VID20261031100029.mp4`，702,251 B，4033 ms；
+- 三个文件均在相册可见并可播放；
+- 普通录像 `VID20261031095408.mp4` 2,912,698 B、延时
+  `VID20261031095635.mp4` 1,456,070 B 均正常，无回归。
+
+新 Sense APK SHA-256 `aa2daad8…`；模块 1.5.7 保持不变。真实
+IVideoService 移植保存在 `wip/multiview-videoservice` 分支，作为后续
+可选增强。
