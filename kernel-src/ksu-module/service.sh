@@ -221,6 +221,13 @@ apply_ifaa_policy
 . "$MODDIR/camera_fix.sh"
 camera_post_boot >> "$LOG" 2>&1 &
 
+# ---- Xiaomi vendor video service (multi-view recording finalize) ----
+# The AIDL service reserves codec/VPP resources for the second video track;
+# without it the app leaves a .pending-*.mp4 with ftyp/mdat and no moov.
+. "$MODDIR/videoservice_fix.sh"
+videoservice_start
+log "videoservice start: $?"
+
 # Watch for touchDaemon restarts (gesture state is per-process).
 (
   last_pid=

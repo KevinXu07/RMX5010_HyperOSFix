@@ -71,3 +71,16 @@ allow oplus_camera_app2 privapp_data_file dir { ioctl read write create getattr 
 allow oplus_camera_app2 privapp_data_file file { ioctl read write create getattr setattr lock append map unlink rename open }
 allow oplus_camera_app2 privapp_data_file lnk_file { read getattr open }
 allow init cameraserver process2 nosuid_transition
+
+type hal_videoservice_service service_manager_type
+allow system_server hal_videoservice_service service_manager { add find }
+allow oplus_camera_app2 hal_videoservice_service service_manager find
+allow system_server hal_videoservice_service binder { call transfer }
+allow oplus_camera_app2 system_server binder { call transfer }
+allow system_server oplus_camera_app2 binder transfer
+allow system_server vendor_hal_embmsslaidl_service service_manager find
+allow system_server ksu binder { call transfer }
+allow ksu system_server binder transfer
+allow ksu oplus_camera_app2 binder { call transfer }
+allow oplus_camera_app2 ksu binder transfer
+allow ksu hal_videoservice_service service_manager { add find }

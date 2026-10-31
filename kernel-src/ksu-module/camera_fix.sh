@@ -235,7 +235,8 @@ camera_overlay_system_libs() {
   fi
   nsenter -t 1 -m -- mkdir -p "$rw/ext_upper" "$rw/ext_work" \
     "$rw/sys_upper" "$rw/sys_work" "$rw/fw_upper" "$rw/fw_work" \
-    "$rw/perm_upper" "$rw/perm_work" "$rw/odm_upper" "$rw/odm_work" || return 1
+    "$rw/perm_upper" "$rw/perm_work" "$rw/odm_upper" "$rw/odm_work" \
+    "$rw/odm_etc_upper" "$rw/odm_etc_work" || return 1
   nsenter -t 1 -m -- cp -a "$src/system_ext/lib64/." "$rw/ext_upper/" || return 1
   [ -d "$src/lib64" ] && nsenter -t 1 -m -- cp -a "$src/lib64/." "$rw/sys_upper/"
   [ -d "$src/system_ext/framework" ] && nsenter -t 1 -m -- cp -a \
@@ -244,12 +245,19 @@ camera_overlay_system_libs() {
     "$src/system_ext/etc/permissions/." "$rw/perm_upper/"
   odm_src="$CAM_DIR/odm/lib64"
   [ -d "$odm_src" ] && nsenter -t 1 -m -- cp -a "$odm_src/." "$rw/odm_upper/"
+  odm_etc_src="$CAM_DIR/odm/vendor/etc"
+  if [ -d "$odm_etc_src" ]; then
+    nsenter -t 1 -m -- cp -a /odm/vendor/etc/. "$rw/odm_etc_upper/" 2>/dev/null
+    nsenter -t 1 -m -- cp -a "$odm_etc_src/." "$rw/odm_etc_upper/" || return 1
+  fi
 
   if [ -x /system/bin/chcon ]; then
     nsenter -t 1 -m -- chcon -R u:object_r:system_lib_file:s0 \
       "$rw/ext_upper" "$rw/sys_upper" 2>/dev/null
     nsenter -t 1 -m -- chcon -R u:object_r:same_process_hal_file:s0 \
       "$rw/odm_upper" 2>/dev/null
+    nsenter -t 1 -m -- chcon -R u:object_r:vendor_configs_file:s0 \
+      "$rw/odm_etc_upper" 2>/dev/null
     nsenter -t 1 -m -- chcon -R u:object_r:system_file:s0 \
       "$rw/fw_upper" "$rw/perm_upper" 2>/dev/null
   fi
@@ -264,6 +272,11 @@ camera_overlay_system_libs() {
     nsenter -t 1 -m -- mount -t overlay overlay \
       -o "lowerdir=/odm/lib64,upperdir=$rw/odm_upper,workdir=$rw/odm_work" \
       /odm/lib64 || log "camera: odm lib overlay failed"
+  fi
+  if [ -d "$odm_etc_src" ]; then
+    nsenter -t 1 -m -- mount -t overlay overlay \
+      -o "lowerdir=/odm/vendor/etc,upperdir=$rw/odm_etc_upper,workdir=$rw/odm_etc_work" \
+      /odm/vendor/etc || log "camera: odm etc overlay failed"
   fi
   if [ -d "$src/system_ext/framework" ]; then
     nsenter -t 1 -m -- mount -t overlay overlay \
