@@ -889,7 +889,8 @@ APS extension `91eb27cb…`、APS client `b6669463…`）后，星空仍报
 结论：星空需要 201 完整 native 栈及其 `graphics.common-V7-ndk`
 依赖，简单替换 201 库会崩溃；native 合并/补齐 V7 依赖是继续
 方向，不是 ODM/JSON 节点能解决的。设备已恢复发布配置
-（`camera_unit_config` SHA-256 `de4293c3…`）。
+（`camera_unit_config` SHA-256 `de4293c3…`）。该结论已在 13.16
+通过 `/odm/lib64` overlay 补齐 V7 解决。
 
 ### 13.15 多景录像 IVideoService stub 实验（2026-10-31）
 
@@ -933,3 +934,45 @@ vendor.xiaomi.hardware.videoservice.IVideoService/default
 `moov`、无法播放；不能作为修复。需要补齐该 vendor 服务。
 
 全景仍需要实际平移手机，桌面平放条件下未完成。
+
+### 13.16 星空修复：/odm/lib64 overlay 补齐 201 算法对 + V7（2026-10-31）
+
+201 `libAlgoInterface.so`/`libAlgoProcess.so` 依赖的
+`android.hardware.graphics.common-V7-ndk.so` 在设备 `/system/lib64`
+存在（52,272 B，SHA-256 `a24365bb…`），但 sphal 命名空间不搜索
+`/system/lib64`。单独 bind mount V7 到 `/odm/lib64` 失败，因为
+`/odm` 是只读 erofs，目标文件不存在；改为在
+`camera_overlay_system_libs` 中挂 `/odm/lib64` overlay：
+lower=`/odm/lib64`，upper=tmpfs 中的 201 算法对 + V7，
+chcon `u:object_r:same_process_hal_file:s0`。
+
+重启后 `/odm/lib64` 三个库哈希为 `3ab2dc1b…`/`da069a1a…`/`a24365bb…`，
+相机正常启动。星空快门参数出现：
+
+```text
+case_algo_name, ALGO_STARMODE
+capture_mode, starry
+capture_request_num, 15
+```
+
+15 帧长曝光堆栈约 4 分钟后 APS 回调 `onApsJpegArrived`：
+`IMG20261031075008.jpg`，4,475,952 B，2304×4096，EXIF 07:50:08。
+201 `libAlgoProcess` 的 ASD 节点仍报
+`odm/lib64/libai_perception_scene_detect.so not found`；已用
+`dump.erofs` 检查 201 ODM `/lib64` 全目录，确认该库不在 201 ODM，
+设备 `/odm`、`/vendor`、`/system`、`/system_ext`、`/my_*` 也没有，
+属于 201 vendor 侧依赖，当前只影响场景识别节点，不影响已验收功能。
+
+1.5.7 模块把三个库打进 `camera/odm/lib64`，开机 overlay 建立后
+重启复测：星空 `IMG20261031080804.jpg`，4,490,696 B，2304×4096，
+EXIF 08:08:04；普通拍照 `IMG20261031080619.jpg` 2,560,505 B
+2304×4096。201 算法对回归：3x `IMG20261031075932.jpg`、0.6x
+`IMG20261031075950.jpg`（1836×3264，mRole=2）、6x
+`IMG20261031080008.jpg`、专业 `IMG20261031080048.jpg`
+（mCapMode=professional）、延时 `VID20261031080119.mp4`
+（1,389,026 B，含 moov）、移轴 `IMG20261031080206.jpg`
+（mCapMode=tiltShift）、超级文本 `IMG20261031080241.jpg`
+（3,361,941 B，ALGO_OFFLINE_MFNR），全部正常。
+
+多景录像仍受 IVideoService 真实 vendor 语义限制，pending MP4
+无 moov；全景仍需实际平移手机。
