@@ -976,3 +976,47 @@ EXIF 08:08:04；普通拍照 `IMG20261031080619.jpg` 2,560,505 B
 
 多景录像仍受 IVideoService 真实 vendor 语义限制，pending MP4
 无 moov；全景仍需实际平移手机。
+
+### 13.17 多景录像：真实 Xiaomi vendor video service 移植与剩余 muxer 阻塞（2026-10-31）
+
+从 haotian OS4.0.0.19 完整 OTA 的 vendor 分区提取到真实服务端：
+`/bin/hw/vendor.xiaomi.hardware.videoservice-service`（AIDL V11）、
+`vendor.xiaomi.hardware.videoservice-V11-ndk.so`、`libresourcemanager.so`、
+`libcodecclientmanager.so`、`libvideocallframe.so`、`libvideoservice_utils.so`。
+服务只依赖标准 libbinder/jsoncpp 和设备已有的 Qualcomm VPP，二进制可直接在
+RMX5010 vendor 上运行。
+
+VINTF 限制：设备 `/vendor/etc/vintf/manifest` 没有该 HAL，servicemanager
+在开机时已缓存 manifest，post-fs-data 再挂 overlay 也来不及（报
+`Could not find ... in the VINTF manifest`）。改为把服务注册到设备已声明、
+未运行的 `vendor.qti.hardware.embmssl.IEmbms/default`：把 V11 NDK 中
+**精确的 IVideoService descriptor**（后跟 NUL 的那一处，不能碰
+`IVideoServiceListener` 前缀）替换为 eMBMS 名称，服务即可通过 VINTF 检查。
+system_server 的 `ServiceManager.getService` 查不到这个 vendor 服务
+（`getService`/`rawGetService` 均返回 null，root app_process 可查到），
+因此用独立 `app_process` 代理（ksu 域）注册
+`vendor.xiaomi.hardware.videoservice.IVideoService/default`，把事务
+token 重写为 eMBMS 后转发给真实服务。
+
+代理在 `releaseListener` 时先调用相机 listener 的
+`onStopFrameCapture`（V12 AIDL code 4）和 `onReleaseFrameCapture`
+（code 5），再延迟转发 release；相机侧 `VoipCapture: enter
+onReleaseFrameCapture` 已收到回调。真实服务日志确认
+`registerListener`、`reportCodecStatus`、`clearCodecInfo`、
+`releaseListener`、`VPPManager clearCodecInfo` 全部执行。
+
+但 `MPEG4Writer` 始终没有 `stop`/moov：编码器
+`c2.qti.hevc.encoder` 的 VPP filter 在停止时报
+`QC2Filter ... stop returned retval=1`、`FilterCore not available`，
+`MediaCodec` 虽进入 RELEASING/UNINITIALIZED，muxer 的视频轨仍未收到
+EOS，pending MP4 只有 ftyp/mdat。已尝试：
+- `ro.vendor.media.video.vpp.support=false` + `persist.vendor.video.vpp.json.broken=false`；
+- 补 haotian ODM 的 `videoCodecCapability.json`/`videobox.json`；
+- hook MediaFormat 强制 `isOplusCamera=0`；
+均未改变 QC2Filter 停止失败和 muxer 不 finalize。
+
+结论：IVideoService 的真实语义已经补齐，多景仍不可用的剩余原因是
+vendor codec2 的 VPP filter 停止/EOS 路径，不是视频服务本身。下一步需要
+patch 相机 App 的 `RecordProcessor`/`VideoSaver` 在 encoder stop 后强制
+muxer stop，或移植 haotian 的 codec2/VPP 栈。当前设备已恢复 1.5.7
+正式模块/Sense APK。
