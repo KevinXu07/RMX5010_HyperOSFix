@@ -1093,3 +1093,42 @@ IVideoService 移植保存在 `wip/multiview-videoservice` 分支，作为后续
 `graphics.common-V7-ndk.so`（`a24365bb…`）哈希正确，provider 运行；
 普通照片冒烟 `IMG20261031123744.jpg`（6x 预览正常）。release Sense APK
 SHA-256 `2188ec77…`（含 gallery/muxer/screen-on hooks）。屏幕已锁。
+
+### 13.20 SAT pixelShift 限制与预览 null 结果分析（2026-10-31）
+
+1. `exceed limits 0` 的来源与无害性
+反汇编设备上的 `libcamxoemsatwrapper.so`（与 201 同哈希）确认：
+`UpdatePixelShift()` 通过 `ChiNodeUtils::GetMulticamDynamicMetaByCamId`
+查询多摄动态元数据，从返回结构的 0x12934/0x12938 读取 pixelShift 的
+x/y 限制；取不到时限制为 0，任何非零 shift 都会打印
+`horizonalShift/verticalShift ... exceed limits 0`，随后把 shift clamp
+到 0。该日志在 0.6x 切换时同样出现（单次 126 条），但 0.6x/3x 预览均
+正常，因此它不是黑屏的直接原因。`persist.vendor.camera.mvgsat.log`
+默认值为 3（设为 1 反而降低日志级别）；SATAlgoOutputData 的 INFO 输出
+还受 CamX log mask 控制，设 5 也未输出。
+
+2. 预览 null 结果的链路
+失败日志（01:32–01:48，旧构建/旧状态）特征为
+`OCAM_PreviewProcessor onReceivePreviewCaptureResult, invalid result`
+→ `OplusCaptureResult null` → `onCaptureCompleted, result is null`，
+持续 2.7–6s。OCS 侧 `ConsumerImpl.notifyPreviewResult` 从
+`PreviewResult.getOplusCaptureResult()` 取结果，该对象由
+`ApsProcessor$ApsServiceListener` 调用
+`OplusCaptureResultManager.obtainOplusCaptureResult()` 生成。SAT 切换
+瞬间 APS 结果缺失时该对象为 null，应用 PreviewProcessor 丢弃该帧。
+同一时段伴随 LivePhotoPresenter 的
+`ImageReader.nativeGetConsumer` NoSuchMethodException（OS4 删除该隐藏
+方法）、`attachImageBufferToBufferQueue failed`，以及
+`APSASDNode get livephoto motionInterval fail`。
+
+结论：黑屏是 APS/实况照片路径在 SAT 切换瞬间拿不到预览结果导致的
+应用层丢帧；HAL 的 shift 日志只是同时出现的噪声。
+
+3. 当前构建复现结果（1.5.7 + Sense 2188ec77，provider 重启后）
+自动/夜景模式、1x↔3x 连续 6 轮、0.6x→3x、冷启动 1s 内点 3x 均无
+null 结果，3x 预览正常。该问题为时序/状态相关的间歇问题，当前构建
+未能复现。若再次出现，需在黑屏瞬间抓
+`OCAM_PreviewProcessor`/`OCAM_LivePhotoPresenter`/`APS_INTERFACE`/`ChiX`
+日志，确认缺失 APS 结果的具体节点。临时规避：避免在实况照片编码/
+相册同步高负载时快速切长焦；`setprop ctl.restart vendor.camera-provider`
+可清除卡住的 SAT/APS 状态。
