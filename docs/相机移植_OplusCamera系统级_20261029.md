@@ -1325,3 +1325,49 @@ code 4，App 不再自杀；同时在 `ImageReader.acquireNextImage` 的 after-h
 - `libarcsoft_hdr_couple_api_V2.so`、`libarcsoft_triple_sat.so`、`libisp_pre.so` 等 201 vendor 侧库缺失，
   对应节点降级（HDR couple、MaskRefine）。
 - App 自己的 MediaStore 插入现在成功（`content://…/1xx`），`com.coloros.gallery3d` / smart provider 缺失只影响缩略图跳转（已有 `com.miui.gallery` hook）。
+
+### 13.25 全模式回归与修复（2026-11-03 下午～晚上）
+
+在 13.24 修好 APS 后逐个模式回归，测试脚本每次都“解锁 → 测 → 立刻锁屏”，所有点击都先确认相机窗口有焦点。
+
+**修复**
+
+1. **“更多”面板缺了 8 个模式**：`/data/user/0/com.oplus.camera/databases/mode_data.db` 是在 APS 坏掉期间建的，只有 10 行，
+   缺 street / highDefinition / movie / longExposure / multiCamera / superText / starry / tiltShift。备份后删除该库，
+   App 重建出 18 个模式。只影响 13.24 之前就用过相机的设备；新装的设备不受影响。
+2. **高像素冷启动时原生崩溃**（PreviewGLThread SIGSEGV，`libApsFaceBeautyPreviewJni.so`
+   `ParamAdjustFactory::updateParamByAppParam+164`）：`ob.e.process` 把
+   `TexturePreviewRequest.getCustomBeautyParams()`（可能为 null）作为 `AppFaceBeautyParam_t.values` 传下去，
+   count 固定为 8，native 端不判空直接解引用。Sense 1.37 新增 `CameraFaceBeautyHooks`：
+   `OplusFaceBeautyPreviewHelper.process` 的第 4 个参数为 null 时，换成全 0 的 `int[32]`。
+3. **电影模式冷启动原生崩溃**（`lib2DSlender.so` `aiface::AiFaceOdnn::initModel+488`）：13.24 的 vndksupport 回退让美颜库
+   真正加载了，但 AI 祛斑 dlopen 的是 `"/odm/lib64" + "/libODNN.so"`，app 命名空间打不开，返回的 NULL 句柄被直接解引用。
+   用 `scripts/patch_lib2dslender_odnn.py` 打二进制补丁：两处 SSO 长度 `mov w8,#0x14 → #0`，后缀改成 `libODNN.so`，
+   于是变成按库名加载。模块把补丁后的 `lib2DSlender.so`（md5 `ccfe0188`）以及 ODM 的 `libODNN.so` / `libzlib.so`
+   放进 priv-app lib 目录。实测 `CreateSession success`，之后不再崩溃。
+4. **星空被映射成普通模式**：13.14 实验留下的 star→common hook 让星空请求拿不到 trigger（只发 8 帧、不出 JPEG）。
+   Sense 1.38 的 `CameraProModeHooks` 只保留 professional_mode→common。
+5. **SELinux 反向拒绝**（enforcing 一侧的拒绝，app 域本身是 permissive）：补充
+   `surfaceflinger→app unix_stream_socket`、`mediaswcodec/mediacodec→app fd use`、`hal_urcc_default→app dir/file`、
+   `system_suspend→app binder`、`cameraserver→app process setsched`。整份 rules 通过了 `ksud sepolicy check`。
+6. **相册桥接**：`ColorOSGalleryStub.apk` 原先的签名声明了 v2 却没有 v2 块，开机 `pm install` 报
+   `INSTALL_PARSE_FAILED_NO_CERTIFICATES`，stub 一直没装上；`GalleryHelper.p` 先检查 `Util.u0`（gallery3d 是否存在），
+   结果为 false 就不跳转。重新按 v1–v3 签名后安装成功，点缩略图能拉起 `com.miui.gallery`（首次会弹小米相册自己的隐私同意框，需要用户本人同意）。
+
+**回归结果（原生 `Picture Save End` / `Video Flie Save End`，重启后复测）**
+
+- 后摄照片 0.6/1/2/3/6×、人像、夜景、专业、高像素 6144×8192、长曝光、超级文本、移轴、街拍：全部保存成功。
+- 前摄照片 3456×4608、前摄人像、前摄夜景、前摄视频：全部保存成功。
+- 视频 1080p、电影 3840×1644、慢动作（4 s 录制得到 8× 慢放）、延时、多景录像（1080×1920，有 moov）：全部保存成功。
+- 星空：在亮环境下降级为单帧拍摄，能保存；暗光 15 帧长曝光路径在去掉映射后还没在真正的暗场测过。
+- 全景：需要实际平移手机，未测。
+
+**关于“卡顿”**：后摄照片预览 20 fps、人像 14 fps，是因为 HAL 的 AE 帧率范围是 `[10,30]`，室内暗光时 ChiX 自己就降到
+20/14 fps（`OP_CAMERA FRAME FPS 19.9 / 14.1`）；前摄和视频模式都是 30 fps。UI 线程 jank 0.56%。这属于原厂的暗光行为，不是移植问题。
+
+**变焦档位**：0.6× 在照片、视频、夜景、街拍、电影里都有。人像（`rear_portrait`）和高像素（`rear_main`+`rear_tele`）
+按 201 原厂 `mode_type_list` 本来就不带 `rear_wide`，所以这两个模式没有 0.6×。
+
+**测试副作用（如实记录）**：11:20 有一次相机冷启动崩溃（即上面第 2 条），回到桌面后，测试脚本的坐标点击误开了“短信”。
+小米的 `com.xiaomi.simactivate.service` 随即自动发出两条 SIM 激活短信（`AC/…:MI&com.android.mms`，一条发往 +44 号码且未送达，
+一条发往 1069120907557841）。之后所有点击都加了焦点守卫，此后再没有发过短信。

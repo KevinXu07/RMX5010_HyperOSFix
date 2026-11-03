@@ -71,3 +71,10 @@ allow oplus_camera_app2 privapp_data_file dir { ioctl read write create getattr 
 allow oplus_camera_app2 privapp_data_file file { ioctl read write create getattr setattr lock append map unlink rename open }
 allow oplus_camera_app2 privapp_data_file lnk_file { read getattr open }
 allow init cameraserver process2 nosuid_transition
+allow surfaceflinger oplus_camera_app2 unix_stream_socket { read write getattr getopt setopt }
+allow mediaswcodec oplus_camera_app2 fd use
+allow mediacodec oplus_camera_app2 fd use
+allow hal_urcc_default oplus_camera_app2 dir search
+allow hal_urcc_default oplus_camera_app2 file { read open getattr }
+allow system_suspend oplus_camera_app2 binder { call transfer }
+allow cameraserver oplus_camera_app2 process setsched
