@@ -96,7 +96,11 @@ camera_merge_dir() {
 
 camera_overlay_privapp() {
   rw="$CAM_TMP/privapp_rw"
+  # Use the complete 6.070.45 build bundled in this module.  The 6.020
+  # preview APK baked into the product image is missing the pantanal
+  # FileShareProvider dex and crashes com.oplus.camera on launch.
   apk_src="$CAM_DIR/priv-app/MiuiCamera/OplusCamera.apk"
+  [ -f "$apk_src" ] || apk_src=/product/priv-app/OplusCamera/OplusCamera.apk
   lib_src="$CAM_DIR/priv-app/MiuiCamera/lib/arm64"
   stub_src="$CAM_DIR/priv-app/MiuiCamera/MiuiCameraProviderStub.apk"
   gallery_src="$CAM_DIR/priv-app/ColorOSGalleryStub/ColorOSGalleryStub.apk"
@@ -117,9 +121,22 @@ camera_overlay_privapp() {
   nsenter -t 1 -m -- mkdir -p "$rw/upper/OplusCamera/lib/arm64" \
     "$rw/upper/MiuiCameraProviderStub" "$rw/upper/ColorOSGalleryStub" "$rw/work" || return 1
   nsenter -t 1 -m -- cp -f "$apk_src" "$rw/upper/OplusCamera/OplusCamera.apk" || return 1
+  nsenter -t 1 -m -- touch -d @0 "$rw/upper/OplusCamera/OplusCamera.apk" 2>/dev/null || true
+  # Hide any prebuilt oat/vdex for the APK: the overlay carries a patched
+  # classes12.dex, so ART must compile from the APK dex instead of reusing
+  # code compiled from the old one.
+  nsenter -t 1 -m -- mkdir -p "$rw/upper/OplusCamera/oat/arm64" 2>/dev/null
+  nsenter -t 1 -m -- sh -c 'for f in OplusCamera.odex OplusCamera.vdex; do mknod "$0/.wh.$f" c 0 0 2>/dev/null; done' "$rw/upper/OplusCamera/oat/arm64" 2>/dev/null || true
   nsenter -t 1 -m -- chmod 0644 "$rw/upper/OplusCamera/OplusCamera.apk" 2>/dev/null
   if [ -d "$lib_src" ]; then
     nsenter -t 1 -m -- cp -a "$lib_src/." "$rw/upper/OplusCamera/lib/arm64/" || return 1
+    # lib_src must hold only the APK's own libraries plus the few extras the
+    # app needs; never add the unit SDK jar's system_ext JNI libraries here.
+    # The jar loads JNI from the app lib dir first (clns-11), and a copy found
+    # there cannot reach the ODM libraries (libOplusSecurity, libalog) the
+    # system_ext copy reaches through the default namespace:
+    # oplus_camera_config then fails to decrypt, APS drops to version 2 with
+    # no capture decision, and preview/zoom/capture break.
     nsenter -t 1 -m -- chmod 0644 "$rw/upper/OplusCamera/lib/arm64/"*.so 2>/dev/null
   fi
   nsenter -t 1 -m -- cp -f "$stub_src" \

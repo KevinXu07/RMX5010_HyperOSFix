@@ -1132,3 +1132,196 @@ null 结果，3x 预览正常。该问题为时序/状态相关的间歇问题�
 日志，确认缺失 APS 结果的具体节点。临时规避：避免在实况照片编码/
 相册同步高负载时快速切长焦；`setprop ctl.restart vendor.camera-provider`
 可清除卡住的 SAT/APS 状态。
+
+### 13.21 前摄预览黑屏根因：APS 版本 2 走错分支（2026-11-03）
+
+**现象**：haotian 4.0.0.19 + OplusCamera 6.070.45（补丁 APK `f966bd32`）+ Sense 1.11，
+前摄可打开、UI 正常，但预览区全黑；`mk.h.l` 返回 false，应用侧没有任何
+`drawNormalPreview` 输出。
+
+**定位**（classes12 反汇编）：
+
+- `mk.b1.n`（drawNormalPreview）`1b68f8`：`if-gt 3, apsVersion, 0x004e` ——
+  `apsVersion < 3` 时直接跳过从 `mk.b1.J0` 取帧，局部帧对象保持 null；
+  `1b6c3a`：`if-eqz (0 == N0), 0x0267` —— `N0 == 0` 时整段上传被跳过。
+- `mk.b1.b` `1b50aa`：同样只有 `apsVersion >= 3` 才调用
+  `PreviewShow.init()`，并把返回句柄写入 `mk.b1.N0`；`apsVersion == 2` 时改为
+  创建显示用 `SurfaceTexture E0`（`1b5012`）。
+- 本机 `CameraUnitAlgoSwitchConfig.getApsVersion()` 返回 **2**，但相机 HAL 的实际预览帧
+  是通过 `CameraPreviewCallback` 以 `HardwareBuffer` 连续写入 `mk.b1.J0`
+  （`addImageBuffer, ... buffer size: 3`）。两者组合的结果：`mk.b1.n` 既不从 `J0`
+  取帧、也不上传，纹理 `h[0]` 永远为空 → 黑屏。
+
+**修复**（Sense 1.25，`CameraPreviewFixHooks`）：
+
+1. hook `com.oplus.ocs.camera.appinterface.adapter.CameraUnitAlgoSwitchConfig.getApsVersion`，
+   返回值 < 3 时改为 3，让 `mk.b1.b` 初始化 PreviewShow、`mk.b1.n` 走 `J0 → PreviewShow.process`
+   的缓冲上传路径；
+2. 对 `SurfaceTexture == null` 的 `onFrameAvailable` 补齐 `I1/J1/M/P1` 首帧记账并 post 重绘；
+3. `mk.p.run` 在 GL 环境门禁 `e0.a()` 为 false 时直接调用 `mk.q.q(env.z)`
+   （makeCurrent + onDrawFrame；缓冲交换由 GL 队列在其后调用 `mk.q.f` 完成）。
+
+**验证**：前摄（`CAMERA_FACING=1`）预览实时、满屏，截图
+`out/full_image_haotian/camera_fix/cam_125_front3.png`。
+
+**后摄现状（非本次回归）**：`CAMERA_FACING=0` 时 session 配置失败：
+
+```
+E CameraUnit, ProducerImpl: onSessionConfigureFail, error result: [error code: 10002, error info: stream surface error]
+E OCAM_OneCameraImpl: onCameraPreviewError, error: PREVIEW_CONFIG_FAILED
+```
+
+用关闭 APS 强制的临时构建（1.25-aps2）复现同样的 10002，说明与 APS 版本无关，
+属于既有的后摄/SAT 配置问题，需单独排查。
+
+### 13.22 后摄 10002 / stream surface error 根因与修复（2026-11-03）
+
+现象：`CAMERA_FACING=0` 时 `onSessionConfigureFail, error result: [error code: 10002,
+error info: stream surface error]` → `PREVIEW_CONFIG_FAILED`，后摄无法出预览。
+
+根因是 `/odm/etc/camera/config/camera_unit_config` 里存在两组在同一次 session 中
+复用同一个 Surface 的输出流，以及 HAL 不支持的 RAW16 大分辨率流：
+
+1. `raw16_output` 与 `raw_output` 的 surface key 都由 `BaseMode.buildStreamSurface`
+   经 `SurfacePool.createImageReader(cameraType & surfaceKey & format & size)` 生成，
+   同一 camera type 下两者落到同一个 pooled Surface，CameraService 直接拒绝：
+   `createStreamLocked: Camera 0: Surface already has a stream created for it (ID 2)`。
+   受影响 usecase：`sat_photo_case`、`sat_photo_full_size_case`、`sat_night_case`、
+   `rear_dual_sat_night_case`、`rear_dual_sat_hdr_case`、`none_sat_night_case`、
+   `mfnr_photo_case`、`street_case`、`sat_street_case`、`front_night_case`、
+   `front_mfnr_night_case`、`ai_high_pixel_case`（删除与 `raw16_output` 冲突的
+   `raw_output` 条目后解决）。
+2. 去掉冲突后 HAL 仍配置失败：`configureStreamsLocked: Unable to configure streams
+   with HAL: Function not implemented (-38)`，CHI 侧
+   `F2Core ... RealTimeFeatureNZSLSnapshotRDI descriptor failed!`。原因是
+   `raw16_output rear_wide` 要求广角 4096×3072 的 RAW16，本机小米 CHI feature2
+   管线不支持该组合；从 `sat_photo_case`、`sat_photo_full_size_case`、`sat_night_case`、
+   `sat_street_case` 移除 `raw16_output: rear_wide` 后 configure 0 失败。
+
+**结果**：后摄（`CAMERA_FACING=0`）预览实时满屏，0.6× / 1× / 2× 切换后均正常出图
+（截图 `out/full_image_haotian/camera_fix/cam_rear_r2.png`、`cam_zoom2.png`、
+`cam_zoom06.png`）；前摄预览同时保持正常（`cam_front_cap.png`）。
+
+**落地**：`camera_unit_config.final.json`（46,606 B，md5 `962c0e90df1829a82453eae86bc10c46`）
+已写入设备 `/data/adb/modules/rmx5010_fod_bridge/camera/etc/camera_unit_config`
+（bind mount 源，原地写同 inode 即时生效），并同步到仓库
+`kernel-src/ksu-module/camera/etc/camera_unit_config`；原始文件另存
+`camera_unit_config.orig.json`（本地与模块目录各一份）。
+
+**遗留：拍照仍被拦截（非预览问题）**。快门点击后：
+
+```
+W OCAM_q2_BaseMode: isReadyToCapture, decisionResult is null or mCameraId not matched, so return
+E OCAM_q2_BaseMode: capture, unable to capture
+```
+
+反汇编 `com.oplus.camera.module.BaseMode`：
+
+- `B7(m8.t)` → `Uc(Z,Z,Z)`；`Uc` 中 `H7(m8.e, Z)` 返回 false 时打印上述日志；
+- `H7` 的失败分支依次为 `decisionResult == null`（`CF_DECISION_RESULT_IS_NULL`）、
+  `e.a == false`（`CF_DECISION_RESULT_NOT_ALLOWED`）、`Ub(e)` 预览结果不支持、
+  以及最后的 `e.b != getCameraId()`。
+
+logcat 中没有出现 `capture, decisionResult is null` / `CF_DECISION_RESULT_IS_NULL` /
+`checkPreviewResult not support capture`，即失败落在最后的 **cameraId 不一致**
+（APS 决策结果里的 cameraId 与 `BaseMode.getCameraId()` 不同源）。前摄、后摄表现一致，
+属系统性 APS 决策/ID 映射问题，需单独排查（候选方向：核对 OCS 逻辑相机 ID 与
+`camera_unit_config` 的 camera_type 映射，或对 `BaseMode.H7` 的 ID 校验做针对性 hook）。
+
+### 13.23 拍照打通：决策门禁放行 + 成片落盘 + 相册索引（2026-11-03）
+
+上一节遗留的 `isReadyToCapture` 拦截已定位并绕过。`BaseMode.H7(m8.e, Z)` 的四个条件中，
+本机 APS 预览结果**没有决策数据**，构造出的 `m8.e` 用默认值：`a`（允许拍照）为 true、
+`b`（cameraId）为 **-1**；`getCameraId()` 返回真实 id（后主摄 0），于是最后的相等判断失败。
+-1 是“未提供 id”的默认值而非冲突值，因此 Sense 在 `H7` 的 after-hook 里确认
+`a == true`、`b == -1`、`Ub(decision) == true` 后直接返回 true（日志
+`capture gate: accepted decision with unset cameraId`），其他三种失败仍按原逻辑拒绝。
+
+打开快门后依次暴露并修掉的还有：
+- `isApsCaptureAlgoInitializing` 永远为 true（APS capture 算法在本机从不启动）→ 强制 false；
+- `BaseMode.checkPreviewResult` 要求预览结果带 `KEY_PREVIEW_CAMERA_ID`，本机无 → 放行；
+- `PhotoMode.isAllowedToTakePicture` 因 `mCaptureSensorModeList == null` 抛 NPE → 无列表时返回 0；
+- `Camera2Impl.takePicture` 的 `mRequestNum` 来自 APS 多帧数（0），`captureBurst` 收到空列表抛
+  `IllegalArgumentException` → 强制 1，并把同样按 0 分配的 `mbNeedPreviewStream` 补齐。
+
+**成片**：`ConsumerImpl.onHalPictureImageArrived` 到达的 YUV 帧由 Sense 自行转 NV21 →
+JPEG(92) 写入 `/sdcard/DCIM/Camera/OPLUS_SENSE_<ts>_r<role>_p<phys>.jpg`。
+- 后摄 1×：`role 0 / physical 2`，4096×3072、约 2.7 MB，内容与预览一致（示例
+  `camera_fix/rear_main_final.jpg`）；
+- 后摄广角 `role 2`（3264×2448）内容正确但偏暗；长焦 `role 3`（4096×3072）是**纯噪声**
+  ——它经离线 Bayer2Yuv 生成，而多摄 SAT 快照的 RAW 帧根本没被采到
+  （`cam_ife_csid_ver2_drv_config: CSID:1 Failed to update drv config, init config not done`
+  → `cam_isp_mgr_drv_config ... rc:-22`）。因此只保留 `role <= 1`（主摄/前摄）的 HAL 成片，
+  其余角色丢弃。
+
+**保底**：HAL 快照失败时框架约 50 ms 后报 `ERROR_CAMERA_DEVICE`，原 App 会
+“camera app will kill self”。Sense 在 `Camera2StateMachineImpl$1.onError` 里丢弃快门后 5 s 内的
+code 4，App 不再自杀；同时在 `ImageReader.acquireNextImage` 的 after-hook 里复制快门后第一帧
+大尺寸 YUV 预览（1920×1440），延迟 1.2 s 写入 `..._preview.jpg` —— 如果主摄成片已经到达就跳过
+（日志 `skipped preview copy, HAL picture saved`），否则保证每次快门都有一张可用的照片。
+
+**相册**：App 自己的保存路径在本机失败（`insert_media_fail`、
+`OCAM_Util: NameNotFoundException: com.coloros.gallery3d`、
+`OCAM_ContentProviderUtil: insert, client is null`，缺 `com.open.gallery.smart.provider`），
+落盘文件不会被索引。Sense 写入后调用 `MediaScannerConnection.scanFile`，实测
+`content://media/external/images/media` 出现 `OPLUS_SENSE_*.jpg`、`is_pending=0`，相册/图库可见。
+
+**验证**：后摄 1× 一次快门得到 1 张 4096×3072 主摄成片并入库；前摄得到 2304×1728 成片
+（`camera_fix/front_final.jpg`），App 不崩溃。产物：Sense 1.35（versionCode 28）。
+
+
+### 13.24 真正根因：priv-app lib 目录遮蔽 system_ext JNI，APS 配置解密失败（2026-11-03 上午）
+
+**结论先行**：13.21–13.23 的现象（APS 版本 2、预览黑、决策 cameraId=-1、`isApsCaptureAlgoInitializing`
+永远 true、`mRequestNum=0`、长焦 role 3 噪声、10002）**都不是 HAL 问题**，而是同一个模块载荷错误的连锁反应。
+修掉根因后，13.21–13.23 的 Sense 绕过 hook 全部不再需要，已从 Sense 1.36 移除。
+
+**根因链**：
+
+1. 1.6.x 模块把 118 个库塞进 `/product/priv-app/OplusCamera/lib/arm64`，其中 51 个和
+   `/system_ext/lib64` 同名（`libOplusStringJNI.so`、`libAPSClient-*-jni.so`、`libCombineLutJni.so` 等）。
+2. `com.oplus.camera.unit.sdk.jar` 的 classloader 命名空间 `clns-11` 的 library_path 是 app lib 目录，
+   所以 `System.loadLibrary("OplusStringJNI")` 先命中 app 目录那份（日志 `Load /product/priv-app/.../libOplusStringJNI.so using class loader ns clns-11`）。
+3. 在 `clns-11` 里，它 dlopen 的 `libOplusSecurity.so` / `libalog.so`（在 `/odm/lib64`）不可见：
+   `OplusStringJNI_getString() load library failed. dlopen failed: library "libOplusSecurity.so" not found`。
+   正常情况（10-31 能用时）是从 `/system_ext/lib64` 以 `ns default` 加载，能看到 ODM 库。
+4. 于是 `oplus_camera_config` / `oplus_camera_algo_switch_config` 解密失败：
+   `getValidConfigData, do decode error` → `initConfigData ... cannot be converted to JSONArray`、
+   `AlgoSwitchConfig: parseConfigData ... cannot be converted to JSONObject`。
+5. APS 配置为空 → `getApsVersion()` 回落 2（应为 **6**）、无 capture pipeline / 决策 → 13.21–13.23 的全部现象。
+
+**修复**：
+
+- 模块载荷 `camera/priv-app/MiuiCamera/lib/arm64` 删掉与 `/system_ext/lib64` 同名的 51 个库，只留 APK 自带库
+  + 少数额外库（67 个）。`camera_fix.sh` 加注释说明此约束。
+- 恢复 13.22 之前的 `camera_unit_config`（`de4293c3…`，= git HEAD，= `camera_unit_config.orig.json`）。
+  13.22 删除 raw 流的版本（`2843292b…`/md5 `962c0e90`）在 APS 正常后反而让 SAT 拍照 `CSID init config not done`，
+  已另存为 `camera_unit_config.962c_aps_broken.bak.json`。10002 在 APS 正常时不出现。
+- `libvndksupport.so` stub 增加 basename 回退：`android_load_sphal_library("/odm/lib64/lib2DSlender.so")`
+  在 app 命名空间被拒后改用 `dlopen("lib2DSlender.so")`，命中模块复制到 app lib 目录的那份。修复人像/美颜预览
+  `PREVIEW_FB: m_pfb_handle is NULL`（人像预览全黑）。源码 `os4/camera_patch/vndkstub.c`，
+  产物 `libvndksupport.basename.so`（md5 `9114543e`）。
+- 模块 1.6.8（versionCode 35）；Sense 1.36（versionCode 29）移除 `CameraPreviewFixHooks`、
+  `CameraCaptureFixHooks` 的注册（源码保留）。
+
+**实测（重启后，原生保存，非 Sense 落盘）**：
+
+- 修复后日志：`Load /system_ext/lib64/libOplusStringJNI.so using ns default`、
+  `initConfigData, old format without version`、`parseConfigData, sApsVersion: 6, sApsMode: 1`、
+  `json_security: file is decrypted` ×3。
+- 后摄 0.6× / 1× / 2× / 3× / 6×：每档 `takePicture mRequestNum: 8` → `completeCapture success: true` →
+  `Picture Save End` → `onApsJpegArrived`，MediaStore 入库 `IMG2026110309xxxx.jpg`。
+  EXIF 35mm 等效：0.6× 16mm（2448×3264，rear_wide）、1× 24mm、2× 49mm、3× 73mm、6× 144mm（长焦真画面，非噪声）。
+- 冷启动后摄 3 次预览均值 81–82（之前 3.2），切 2×/3×/6×/0.6× 预览全部有画面。
+- 前摄预览均值 115，成片 3456×4608；前→后翻转预览正常。
+- 人像（默认 3× 长焦）预览实时 + 虚化；快门原生保存 3072×4096（夜间人像约 10 s 才完成）。
+- 录像/照片模式切换预览正常。
+
+**仍存在但不阻塞**：
+
+- 每次拍照 HAL 会对部分 meta/RAW 流报 `code 5`（ERROR_BUFFER）与 `onCaptureBufferLost`，APS 仍能用主帧出图；
+  对应 ChiX `GetNZSLSnapshotConfigInfo() Invalid logicalCameraId`，属小米 CHI 与 Oplus usecase 不完全匹配。
+- `zoom not ready: true` 每次切档都会打印，但不再影响切换/出图。
+- `libarcsoft_hdr_couple_api_V2.so`、`libarcsoft_triple_sat.so`、`libisp_pre.so` 等 201 vendor 侧库缺失，
+  对应节点降级（HDR couple、MaskRefine）。
+- App 自己的 MediaStore 插入现在成功（`content://…/1xx`），`com.coloros.gallery3d` / smart provider 缺失只影响缩略图跳转（已有 `com.miui.gallery` hook）。
