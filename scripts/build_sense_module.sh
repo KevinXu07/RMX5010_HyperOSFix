@@ -7,9 +7,14 @@
 # Env:
 #   SENSE_DIR         Sense source (default: ../Sense)
 #   OUT               output directory (default: ./out)
-#   SENSE_KEYSTORE    signing keystore (default: ~/.android/debug.keystore)
-#   SENSE_KEY_ALIAS   key alias (default: androiddebugkey)
-#   SENSE_KEYSTOREPASS / SENSE_KEYPASS (default: android)
+#   SENSE_KEYSTORE    signing keystore (default: $SENSE_DIR/keystore/sense-release.jks)
+#   SENSE_KEY_ALIAS   key alias (default: sense)
+#   SENSE_KEYSTOREPASS / SENSE_KEYPASS (default: sense-release)
+#
+# The release keystore is NOT in this repo: it lives next to the Sense source
+# (E:\code\modify\Sense\keystore\sense-release.jks). Back it up; every future
+# Sense update must be signed with the same key, otherwise Android refuses to
+# install over the old one.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,10 +23,10 @@ OUT="${OUT:-$ROOT/out}"
 JAVA_HOME="${JAVA_HOME:-/d/Program Files/Android/Android Studio/jbr}"
 SDK="${SDK:-/d/AndroidSDK}"
 BT="$SDK/build-tools/36.0.0"
-SENSE_KEYSTORE="${SENSE_KEYSTORE:-$HOME/.android/debug.keystore}"
-SENSE_KEY_ALIAS="${SENSE_KEY_ALIAS:-androiddebugkey}"
-SENSE_KEYSTOREPASS="${SENSE_KEYSTOREPASS:-android}"
-SENSE_KEYPASS="${SENSE_KEYPASS:-android}"
+SENSE_KEYSTORE="${SENSE_KEYSTORE:-$SENSE_DIR/keystore/sense-release.jks}"
+SENSE_KEY_ALIAS="${SENSE_KEY_ALIAS:-sense}"
+SENSE_KEYSTOREPASS="${SENSE_KEYSTOREPASS:-sense-release}"
+SENSE_KEYPASS="${SENSE_KEYPASS:-sense-release}"
 
 [ -x "$SENSE_DIR/gradlew" ] || {
   echo "Sense gradlew not found under $SENSE_DIR" >&2

@@ -1,0 +1,135 @@
+#!/system/bin/sh
+# rmx5010_fod_bridge installer
+#
+# KernelSU 只有在模块里存在 install.sh 时才会把脚本交给模块自己执行，并且
+# 只解出 module.prop + install.sh，其余文件不会自动展开。所以这里先自己把
+# 整包解到 $MODPATH，再顺带安装 LSPosed / ZygiskNext / Sense。
+#
+# 环境（由 ksud 提供）：
+#   $ZIPFILE  原始模块 zip（例如 /storage/emulated/0/Download/xxx.zip）
+#   $MODPATH  目标目录 /data/adb/modules_update/rmx5010_fod_bridge
+#   cwd       /dev/tmp
+
+LOG=/data/local/tmp/rmx5010_installer.log
+: > "$LOG"
+
+log() {
+  echo "$*"
+  echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"
+}
+
+fail() {
+  log "错误：$*"
+  log "安装已终止，系统分区没有被改动。修正后可在 KSU 管理器中重新安装。"
+  exit 1
+}
+
+MODDIR=${MODPATH:-/data/adb/modules_update/rmx5010_fod_bridge}
+KSUD=/data/adb/ksud
+BB=/data/adb/ksu/bin/busybox
+[ -x "$BB" ] || BB=busybox
+[ -x "$KSUD" ] || KSUD=/data/adb/ksu/bin/ksud
+
+log "rmx5010_fod_bridge：开始安装"
+log "模块包：$ZIPFILE"
+log "安装目录：$MODDIR"
+
+# ---------------------------------------------------------------- 1. 解包
+[ -f "$ZIPFILE" ] || fail "找不到模块包 $ZIPFILE"
+"$BB" unzip -o -q "$ZIPFILE" -d "$MODDIR" >> "$LOG" 2>&1
+rc=$?
+[ "$rc" -eq 0 ] || fail "解包失败（rc=$rc），请确认模块包完整、存储空间充足"
+
+# 解包后模块脚本默认是 0644，补回可执行位（KSU action.sh 会直接执行）。
+"$BB" chmod 0755 "$MODDIR"/*.sh 2>/dev/null
+
+# KernelSU 在正常安装流程里会把 system/system_ext 提到模块根目录，并给
+# system/system_ext 留一个指回根目录的符号链接（system-as-root 设备）。
+# 走 install.sh 时这一步不一定发生，自己补上，保证相机库的挂载路径不变。
+if [ -d "$MODDIR/system/system_ext" ] && [ ! -L "$MODDIR/system/system_ext" ]; then
+  if [ -e "$MODDIR/system_ext" ]; then
+    rm -rf "$MODDIR/system_ext"
+  fi
+  mv "$MODDIR/system/system_ext" "$MODDIR/system_ext" || fail "移动 system_ext 失败"
+  ln -s ../system_ext "$MODDIR/system/system_ext" || fail "创建 system_ext 链接失败"
+  log "system_ext 已提升到模块根目录"
+fi
+
+# 载荷完整性检查：相机 APK 是模块的核心，缺了就不要让它开机。
+CAM_APK="$MODDIR/camera/priv-app/MiuiCamera/OplusCamera.apk"
+[ -f "$CAM_APK" ] || fail "模块载荷不完整：缺少 $CAM_APK"
+cam_size=$("$BB" stat -c %s "$CAM_APK" 2>/dev/null)
+[ "$cam_size" = "193164793" ] || fail "相机 APK 大小异常（$cam_size），模块包可能已损坏"
+[ -f "$MODDIR/rmx5010_fod_bridge.ko" ] || fail "模块载荷不完整：缺少 rmx5010_fod_bridge.ko"
+[ -f "$MODDIR/service.sh" ] || fail "模块载荷不完整：缺少 service.sh"
+log "模块载荷校验通过（相机 APK $cam_size B）"
+
+# ------------------------------------------------- 2. LSPosed / ZygiskNext
+INSTALLED_ANY=0
+
+module_present() {
+  [ -d "/data/adb/modules/$1" ] || [ -d "/data/adb/modules_update/$1" ]
+}
+
+install_module() {
+  id=$1
+  zip=$2
+  label=$3
+  if module_present "$id"; then
+    log "$label 已安装，跳过"
+    return 0
+  fi
+  if [ ! -f "$zip" ]; then
+    log "$label 安装包缺失（$zip），跳过"
+    return 1
+  fi
+  log "正在安装 $label …"
+  "$KSUD" module install "$zip" >> "$LOG" 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ] && module_present "$id"; then
+    log "$label 安装成功，重启后生效"
+    INSTALLED_ANY=1
+    return 0
+  fi
+  log "$label 安装失败（rc=$rc），已把安装包放到 /sdcard/Download/rmx5010_installer/ 供手动安装"
+  mkdir -p /sdcard/Download/rmx5010_installer
+  cp -f "$zip" /sdcard/Download/rmx5010_installer/ 2>/dev/null
+  return 1
+}
+
+install_module zygisksu "$MODDIR/installer/zygisknext-1.5.2.zip" "ZygiskNext"
+install_module zygisk_lsposed "$MODDIR/installer/LSPosed-v2.2.1-7912-release.zip" "LSPosed"
+
+# ------------------------------------------------------------- 3. Sense APK
+SENSE_APK="$MODDIR/installer/Sense-1.38.apk"
+if [ -n "$(pm path com.zephiel.sense 2>/dev/null)" ]; then
+  log "Sense 已安装，跳过。若要换成本包的 release 签名，请先卸载 com.zephiel.sense 再重新安装本模块。"
+else
+  if [ -f "$SENSE_APK" ]; then
+    cp -f "$SENSE_APK" /data/local/tmp/rmx5010_sense.apk
+    chmod 0644 /data/local/tmp/rmx5010_sense.apk
+    log "正在安装 Sense …"
+    pm install -r /data/local/tmp/rmx5010_sense.apk >> "$LOG" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ] && [ -n "$(pm path com.zephiel.sense 2>/dev/null)" ]; then
+      log "Sense 安装成功"
+      INSTALLED_ANY=1
+    else
+      log "Sense 安装失败（rc=$rc），APK 已复制到 /sdcard/Download/rmx5010_installer/"
+      mkdir -p /sdcard/Download/rmx5010_installer
+      cp -f "$SENSE_APK" /sdcard/Download/rmx5010_installer/ 2>/dev/null
+    fi
+    rm -f /data/local/tmp/rmx5010_sense.apk
+  else
+    log "Sense 安装包缺失（$SENSE_APK），跳过"
+  fi
+fi
+
+# ------------------------------------------------------------------ 4. 收尾
+if [ "$INSTALLED_ANY" = "1" ]; then
+  log "全部完成：重启一次以启用 ZygiskNext / LSPosed / Sense。"
+else
+  log "全部完成：依赖组件均已存在，无需额外安装，重启后模块生效。"
+fi
+log "详细日志：$LOG"
+exit 0

@@ -118,18 +118,42 @@ A 槽、清 COW、重建 super 逻辑分区再刷。这里改为只修有问题�
 
 ## 首次开机后
 
-1. 安装 `optional/SukiSU_v4.2.0_40900-release.apk`（Root 管理器）。
-2. 安装 `camera_fix/rmx5010_fod_bridge-1.6.9-camera-full.zip`（KSU/Magisk
-   模块，versionCode 36）。`camera_fix/` 里只有模块 zip、Sense APK 和说明，
-   不要再拿旧分享包当模块安装——KSU 会报
+1. 安装 `optional/SukiSU_v4.2.0_40900-release.apk`（Root 管理器），重启一次。
+2. 安装 `camera_fix/rmx5010_fod_bridge-1.7.0-camera-full.zip`（KSU/Magisk
+   模块，versionCode 37）。`camera_fix/` 里只有这一个模块 zip、Sense APK
+   和说明，不要再拿旧分享包当模块安装——KSU 会报
    "specific file not found in archive"。
-3. 安装 LSPosed 框架（本包未提供），再安装
-   `camera_fix/Sense-1.38.apk`（本次新增：人脸录入修复 +
-   灵动岛 74px / 状态栏 padding 14px）。
-4. LSPosed 作用域至少勾选 `com.android.settings`、`com.android.systemui`
-   （相机、钱包等原有作用域照旧），重启。
+3. 模块 1.7.0 自带安装器，安装时会自动部署：
+   - ZygiskNext 1.5.2（已安装则跳过）
+   - LSPosed 2.2.1 (7912)（已安装则跳过）
+   - Sense 1.38（已安装则跳过；本包内是 release 签名版）
+   安装完成后重启一次；如果本次新装了 LSPosed，重启后打开 LSPosed，
+   启用 Sense，作用域至少勾选 `com.android.settings`、`com.android.systemui`
+   （相机、钱包等原有作用域照旧），再重启一次。
+4. Sense 也可以在装完 LSPosed 后手动安装 `camera_fix/Sense-1.38.apk`
+   （本次新增：人脸录入修复 + 灵动岛 74px / 状态栏 padding 14px）。
+   手机上已有 debug 签名的 Sense 时不能覆盖安装，需要先卸载
+   `com.zephiel.sense` 再装，然后在 LSPosed 里重新启用、重勾作用域。
 5. 相机、星空、多景、相册桥接、触感、人脸录入、灵动岛修复才会完整生效。
    未启用 Sense 前，灵动岛为 donor 默认位置、人脸录入可能卡在进度环（预期）。
+
+### 模块自带安装器（1.7.0）
+
+模块 zip 内多了 `installer/`（ZygiskNext / LSPosed / Sense 三个包）和
+`install.sh`。KernelSU 在模块带 `install.sh` 时只解出 `module.prop` 和
+`install.sh`，所以脚本自己用 busybox `unzip` 展开整包，再做四件事：
+
+- 把 `system/system_ext` 提升到模块根目录并留符号链接（system-as-root 布局，
+  与 1.6.9 的安装结果一致）；
+- 校验相机 APK 大小必须是 193,164,793 B、`rmx5010_fod_bridge.ko` 和
+  `service.sh` 存在，不满足就中止，避免装出一个半残模块；
+- 用 `/data/adb/ksud module install` 装 ZygiskNext（`zygisksu`）和
+  LSPosed（`zygisk_lsposed`），目录已存在就跳过；
+- 用 `pm install` 装 Sense，已安装就跳过。
+
+失败时会把对应的包复制到 `/sdcard/Download/rmx5010_installer/`，
+安装日志在 `/data/local/tmp/rmx5010_installer.log`。
+
 
 ## 警告
 
@@ -147,11 +171,15 @@ A 槽、清 COW、重建 super 逻辑分区再刷。这里改为只修有问题�
 ## 第三方组件与授权
 
 - `optional/SukiSU_v4.2.0_40900-release.apk`：SukiSU 项目发布版，版权归其作者。
-- `camera_fix/Sense-1.38.apk`：Sense 项目提供的 LSPosed 模块，版权归其作者。
+- `camera_fix/Sense-1.38.apk`：Sense 项目提供的 LSPosed 模块，版权归其作者；
+  本包中的副本用 `CN=Sense, OU=RMX5010, O=zephiel` 的 release 密钥重新签名，
+  代码与 1.38 一致。
+- 模块 zip 内 `installer/` 打包了 LSPosed 2.2.1 (7912) 与 ZygiskNext 1.5.2
+  的官方 release，二者均为 GPL-3.0，源码见各自仓库
+  （<https://github.com/LSPosed/LSPosed>、<https://github.com/Dr-TSNG/ZygiskNext>）。
 - `images/` 中的原厂分区、`camera_fix` 模块内的 OplusCamera 与系统库来自
   对应原厂 / 移植源，版权归原权利人；本包仅用于同机型个人移植与修复交流，
   请勿用于商业分发。
-- LSPosed / ZygiskNext 框架**不在本包内**，请从各自官方发布页获取。
 
 ## 文件结构
 
@@ -161,7 +189,7 @@ metadata/PARTITIONS_54.txt
 metadata/sha256_images.txt
 optional/init_boot_sukisu.img
 optional/SukiSU_v4.2.0_40900-release.apk
-camera_fix/rmx5010_fod_bridge-1.6.9-camera-full.zip
+camera_fix/rmx5010_fod_bridge-1.7.0-camera-full.zip
 camera_fix/Sense-1.38.apk
 camera_fix/README_FIRST_zh.txt
 platform-tools/

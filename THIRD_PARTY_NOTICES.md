@@ -53,7 +53,23 @@ SELinux 策略片段。mtd 块由本项目从**本机已验证的 OS3 策略**�
 `flash_device_check.ps1`。采纳与未采纳的细节见
 `docs/欧加线刷流程参考_VioletToolBox.md`。
 
-## 6. 其它
+## 6. 模块自带安装器分发的组件
+
+`kernel-src/ksu-module/installer/` 随模块 zip 分发以下第三方 release，安装模块时
+由 `install.sh` 部署到设备（已安装则跳过）：
+
+- `LSPosed-v2.2.1-7912-release.zip`：LSPosed 2.2.1 (7912) 官方 release，
+  GPL-3.0，<https://github.com/LSPosed/LSPosed>
+- `zygisknext-1.5.2.zip`：ZygiskNext 1.5.2 (864-a4a72ce-release) 官方 release，
+  GPL-3.0，<https://github.com/Dr-TSNG/ZygiskNext>
+- `Sense-1.38.apk`：Sense 1.38 的 release 签名副本（代码与已测试的 1.38 一致，
+  仅更换签名密钥）
+
+这些文件按上游发布原样保留，未修改其代码；分发时请同时遵守各自的 GPL-3.0 条款
+（提供对应源码的获取方式）。
+
+## 7. 其它
 
 - 仓库内的脚本与文档由本项目编写；**授权方式由仓库所有者决定**（如需开源发布，请自行添加 `LICENSE`）。
 - 不包含任何私钥、签名材料或设备唯一标识。刷机脚本中出现的序列号占位符请替换为你自己的设备。
+
