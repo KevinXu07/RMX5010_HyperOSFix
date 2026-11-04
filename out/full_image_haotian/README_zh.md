@@ -116,6 +116,20 @@ A 槽、清 COW、重建 super 逻辑分区再刷。这里改为只修有问题�
   为实际名称（`system` → `system_a`）；镜像不存在或目标分区缺失即停止；
   镜像大于分区时提示自动扩容；`-CleanCow` 清理 `cow*` 逻辑分区。
 
+### 检测到 fastbootd 后报“没有唯一的 fastboot 设备”
+
+bootloader 切到 fastbootd 时 USB 会重新枚举，设备可能短暂从 `fastboot
+devices` 里消失。脚本现在会**重试 10 次（约 20 秒）**，并且把实际检测结果打印
+出来（`[设备] 当前 fastboot 设备数：N`，多台时列出序列号）：
+
+- 显示 0 台：换 USB 口/数据线，确认手机停在 fastbootd 界面，关掉其它占用
+  fastboot 的程序后重跑；仍然 0 台时会提示 `fastboot devices 执行失败`，
+  说明是驱动或 USB 问题。
+- 显示多台：只保留目标手机（拔掉其它手机、关掉其它 fastboot 窗口）后重跑。
+
+这个提示不会改动手机：脚本在写动态分区之前就停下了，重跑即可（会重新执行
+bootloader 阶段和 `-w`，数据本来就是清的）。
+
 ## 首次开机后
 
 1. 安装 `optional/SukiSU_v4.2.0_40900-release.apk`（Root 管理器），重启一次。

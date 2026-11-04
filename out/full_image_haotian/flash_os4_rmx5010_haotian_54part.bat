@@ -122,7 +122,7 @@ goto :wait_userspace
 :fastbootd_ready
 echo 已检测到 fastbootd，额外等待 5 秒，确保驱动及连接稳定...
 timeout /t 5 /nobreak >nul
-call :one_device || goto :no_device
+call :wait_one_device || goto :no_device
 echo [3/3] 正在核对 fastbootd 分区表并清理 COW 快照...
 if defined FORCE goto :check_force
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%DEVCHECK%" -Stage fastbootd -Fastboot "%FASTBOOT%" -Images "%PKG%" -Partitions "my_engineering,my_carrier,my_region,my_manifest,my_bigball,my_heytap,my_product,my_stock,vendor,odm,system_dlkm,vendor_dlkm,system,system_ext,product" -CleanCow || goto :err
@@ -155,14 +155,36 @@ exit /b 0
 :one_device
 set "DEVICE="
 set /a DEVICE_COUNT=0
-"%FASTBOOT%" devices >"%STATEFILE%" 2>nul || exit /b 1
+"%FASTBOOT%" devices >"%STATEFILE%" 2>nul
+if errorlevel 1 (
+    echo [设备] fastboot devices 执行失败，检查 USB 驱动或换一根数据线。
+    exit /b 1
+)
 for /f "usebackq tokens=1" %%A in ("%STATEFILE%") do (
     set /a DEVICE_COUNT+=1
     set "DEVICE=%%A"
 )
 if !DEVICE_COUNT! EQU 1 exit /b 0
-if !DEVICE_COUNT! EQU 0 exit /b 1
-echo [错误] 检测到多台 fastboot 设备，请先断开其它手机。
+if !DEVICE_COUNT! EQU 0 (
+    echo [设备] 当前 fastboot 设备数：0。
+    exit /b 1
+)
+echo [设备] 当前 fastboot 设备数：!DEVICE_COUNT!，清单如下：
+type "%STATEFILE%"
+exit /b 1
+
+:wait_one_device
+rem bootloader 切 fastbootd 时 USB 会重新枚举，设备可能短暂掉线；最多重试 10 次（约 20 秒）。
+set /a WAITD=0
+:wait_one_device_loop
+set /a WAITD+=1
+if !WAITD! GEQ 10 goto :wait_one_device_last
+call :one_device >nul 2>&1
+if not errorlevel 1 exit /b 0
+timeout /t 2 /nobreak >nul
+goto :wait_one_device_loop
+:wait_one_device_last
+call :one_device
 exit /b 1
 
 :one_adb_device
@@ -195,7 +217,9 @@ timeout /t 2 /nobreak >nul
 goto :wait_bootloader_loop
 
 :no_device
-echo [错误] 未检测到唯一的 fastboot 设备，请检查数据线、驱动，并只连接目标手机。
+echo [错误] 没有拿到唯一的 fastboot 设备。上一行的 [设备] 信息会给出实际数量。
+echo 0 台：换 USB 口或数据线，确认手机停在 fastbootd 界面，且没有被其它程序占用。
+echo 多台：只保留目标手机（拔掉其它手机、关掉其它 fastboot 窗口）后重跑本脚本。
 echo 按任意键退出。
 pause >nul
 exit /b 1
