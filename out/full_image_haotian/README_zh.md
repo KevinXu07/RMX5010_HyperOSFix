@@ -120,9 +120,9 @@ A 槽、清 COW、重建 super 逻辑分区再刷。这里改为只修有问题�
 
 1. 安装 `optional/SukiSU_v4.2.0_40900-release.apk`（Root 管理器）。
 2. 安装 `camera_fix/rmx5010_fod_bridge-1.6.9-camera-full.zip`（KSU/Magisk
-   模块，versionCode 36）。**不要**直接安装
-   `camera_fix/RMX5010_HyperOSFix_1.5.7_share_20261102.zip`——那是分享包，
-   不是 KSU 模块，KSU 会报 "specific file not found in archive"。
+   模块，versionCode 36）。`camera_fix/` 里只有模块 zip、Sense APK 和说明，
+   不要再拿旧分享包当模块安装——KSU 会报
+   "specific file not found in archive"。
 3. 安装 LSPosed 框架（本包未提供），再安装
    `camera_fix/Sense-1.38.apk`（本次新增：人脸录入修复 +
    灵动岛 74px / 状态栏 padding 14px）。
@@ -144,6 +144,15 @@ A 槽、清 COW、重建 super 逻辑分区再刷。这里改为只修有问题�
 - 镜像哈希以 `metadata/sha256_images.txt` 为准；校验失败禁止刷入。
 - 本包是 haotian OS4.0.0.19 底包；nezha OS4.0.2.0 的镜像不能混用。
 
+## 第三方组件与授权
+
+- `optional/SukiSU_v4.2.0_40900-release.apk`：SukiSU 项目发布版，版权归其作者。
+- `camera_fix/Sense-1.38.apk`：Sense 项目提供的 LSPosed 模块，版权归其作者。
+- `images/` 中的原厂分区、`camera_fix` 模块内的 OplusCamera 与系统库来自
+  对应原厂 / 移植源，版权归原权利人；本包仅用于同机型个人移植与修复交流，
+  请勿用于商业分发。
+- LSPosed / ZygiskNext 框架**不在本包内**，请从各自官方发布页获取。
+
 ## 文件结构
 
 ```
@@ -152,7 +161,6 @@ metadata/PARTITIONS_54.txt
 metadata/sha256_images.txt
 optional/init_boot_sukisu.img
 optional/SukiSU_v4.2.0_40900-release.apk
-camera_fix/RMX5010_HyperOSFix_1.5.7_share_20261102.zip
 camera_fix/rmx5010_fod_bridge-1.6.9-camera-full.zip
 camera_fix/Sense-1.38.apk
 camera_fix/README_FIRST_zh.txt
