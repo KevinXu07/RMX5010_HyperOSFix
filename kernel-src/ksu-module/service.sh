@@ -245,3 +245,86 @@ if [ -f "$MODDIR/game_fps.sh" ]; then
   sh "$MODDIR/game_fps.sh" >> "$LOG" 2>&1 &
   log "game fps watcher started"
 fi
+
+# ---- LSPosed cold-boot race: let Sense install its system_server hooks ----
+# zygisk_lsposed only ships service.sh, so lspd starts in the "services" stage,
+# after zygote has already forked system_server. LSPosed's SystemServer bridge
+# connects exactly once and never retries: when it loses that race the whole
+# Sense framework half never loads and every Xiaomi-private vibration effect is
+# silently rejected (typing/back/keyboard haptics fall back to stock).
+#
+# Verified 2026-11-04 on this device: without this block the newest
+# modules_*.log contains no "(system)" line at all; once zygote is restarted
+# with lspd already up it logs "system_server hooks installed" and
+# supportedEffects regains 162/163/10001.
+#
+# The restart is issued while the boot animation is still up (measured: restart
+# at uptime 12 s, first screen-on at 23 s), so the user never sees a blank
+# frame - the animation simply runs a few seconds longer. Once per boot; the
+# marker lives on tmpfs. Everything here is detached and never blocks boot.
+LSPD_LOG=/data/adb/lspd/log/early_start.log
+LSPD_MARK=/dev/.lspd_early_zygote_restarted
+LSPD_DIR=/data/adb/modules/zygisk_lsposed
+(
+  # "log" is the module's boot.log writer here, so use the binary explicitly.
+  lspd_note() {
+    echo "$(date '+%F %T') $*" >> "$LSPD_LOG" 2>/dev/null
+  }
+
+  # Wait for the LSPosed daemon (same "services" stage, order not guaranteed).
+  i=0
+  while [ $i -lt 60 ]; do
+    pidof lspd >/dev/null 2>&1 && break
+    sleep 1
+    i=$((i+1))
+  done
+  if ! pidof lspd >/dev/null 2>&1; then
+    lspd_note "boot: lspd not running after ${i}s, skip"
+    exit 0
+  fi
+
+  # Nothing to load when the user disabled every LSPosed module.
+  status=$("$LSPD_DIR/lspctl" status 2>/dev/null)
+  enabled=$(echo "$status" | sed -n 's/.*, \([0-9][0-9]*\) enabled user states.*/\1/p')
+  if [ "${enabled:-0}" -le 0 ]; then
+    lspd_note "boot: no enabled LSPosed modules, skip"
+    exit 0
+  fi
+
+  # system_server logs its hook state within a second of the fork; 3 s is slack.
+  i=0
+  while [ $i -lt 40 ]; do
+    pidof system_server >/dev/null 2>&1 && break
+    sleep 1
+    i=$((i+1))
+  done
+  if ! pidof system_server >/dev/null 2>&1; then
+    lspd_note "boot: system_server not running after ${i}s, skip"
+    exit 0
+  fi
+  sleep 3
+
+  newest=$(ls -t /data/adb/lspd/log/modules_*.log 2>/dev/null | head -n 1)
+  if [ -n "$newest" ] && grep -qa "system_server hooks installed" "$newest"; then
+    lspd_note "boot: system_server hooks present, no restart"
+    exit 0
+  fi
+
+  [ -e "$LSPD_MARK" ] && exit 0
+  touch "$LSPD_MARK"
+  lspd_note "boot: system_server hooks missing, restart zygote during boot animation (uptime=$(cut -d. -f1 /proc/uptime)s)"
+  /system/bin/log -p i -t LSPD_EARLY \
+    "restarting zygote during boot animation (LSPosed system_server hooks missing)"
+  setprop ctl.restart zygote
+
+  # Post-check only: record the outcome, never restart a second time.
+  sleep 60
+  newest=$(ls -t /data/adb/lspd/log/modules_*.log 2>/dev/null | head -n 1)
+  if [ -n "$newest" ] && grep -qa "system_server hooks installed" "$newest"; then
+    lspd_note "boot: after restart hooks present"
+  else
+    lspd_note "boot: after restart hooks STILL missing"
+    /system/bin/log -p e -t LSPD_EARLY \
+      "system_server hooks still missing after zygote restart"
+  fi
+) >/dev/null 2>&1 &
