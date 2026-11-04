@@ -43,7 +43,17 @@ SELinux 策略片段。mtd 块由本项目从**本机已验证的 OS3 策略**�
 该项目包含 HyperCeiler 派生内容，遵循 AGPLv3；上述派生文件的使用/再分发
 请同时遵守上游项目与 Savitech 的授权。该项目的完整工程请直接从上游获取。
 
-## 5. 其它
+## 5. 参考项目：VioletToolBox
+
+[Smart-Paocai/VioletToolBox](https://github.com/Smart-Paocai/VioletToolBox)（GPL-3.0）：
+欧加（OPPO/一加/真我）线刷工具。本项目只参考其线刷**流程设计**（
+`VioletToolBox/oujiaflash.cs` 的普通线刷与「强力线刷」流程），未复制 C# 代码。
+
+据此重写的脚本：`out/full_image_haotian/flash_os4_rmx5010_haotian_54part.bat`、
+`flash_device_check.ps1`。采纳与未采纳的细节见
+`docs/欧加线刷流程参考_VioletToolBox.md`。
+
+## 6. 其它
 
 - 仓库内的脚本与文档由本项目编写；**授权方式由仓库所有者决定**（如需开源发布，请自行添加 `LICENSE`）。
 - 不包含任何私钥、签名材料或设备唯一标识。刷机脚本中出现的序列号占位符请替换为你自己的设备。
