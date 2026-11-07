@@ -30,6 +30,12 @@ BB=/data/adb/ksu/bin/busybox
 [ -x "$BB" ] || BB=busybox
 [ -x "$KSUD" ] || KSUD=/data/adb/ksu/bin/ksud
 
+# ksud 把本脚本的 cwd 设在 /dev/tmp，而下面第 2 步嵌套调用的 ksud module install
+# 会把这个临时目录整个删掉。之后任何要用 cwd 的命令都会失败，其中 pm install
+# 会直接 SIGABRT（rc=134，getcwd failed），表现就是 Sense 永远装不上。
+# 本脚本所有路径都是绝对的，先挪到根目录即可。
+cd / 2>/dev/null || cd /data
+
 log "rmx5010_fod_bridge：开始安装"
 log "模块包：$ZIPFILE"
 log "安装目录：$MODDIR"
