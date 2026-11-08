@@ -131,7 +131,76 @@ else
   fi
 fi
 
-# ------------------------------------------------------------------ 4. 收尾
+# ------------------------------------------------------------- 4. 钱包套件
+# ColorOS 钱包 5 件套随模块打包（来源与 SHA-256 见 THIRD_PARTY_NOTICES.md）。
+# 它们是普通用户应用，装在 /data/app；已存在的跳过，签名不一致装不上时把
+# APK 放到 /sdcard/Download/rmx5010_installer/ 供手动处理。
+WALLET_DIR="$MODDIR/installer/wallet"
+
+wallet_install() {
+  pkg=$1
+  apk=$2
+  if [ ! -f "$apk" ]; then
+    log "钱包组件缺失：$(basename "$apk")，跳过"
+    return 0
+  fi
+  if [ -n "$(pm path "$pkg" 2>/dev/null)" ]; then
+    log "钱包组件已存在：$pkg"
+    return 0
+  fi
+  cp -f "$apk" /data/local/tmp/rmx5010_wallet.apk
+  chmod 0644 /data/local/tmp/rmx5010_wallet.apk
+  pm install -r /data/local/tmp/rmx5010_wallet.apk >> "$LOG" 2>&1
+  rc=$?
+  rm -f /data/local/tmp/rmx5010_wallet.apk
+  if [ "$rc" -eq 0 ] && [ -n "$(pm path "$pkg" 2>/dev/null)" ]; then
+    log "钱包组件安装成功：$pkg"
+    INSTALLED_ANY=1
+  else
+    log "钱包组件安装失败：$pkg（rc=$rc），APK 已复制到 /sdcard/Download/rmx5010_installer/"
+    mkdir -p /sdcard/Download/rmx5010_installer
+    cp -f "$apk" /sdcard/Download/rmx5010_installer/ 2>/dev/null
+  fi
+}
+
+wallet_install com.finshell.wallet "$WALLET_DIR/FinShellWallet.apk"
+wallet_install com.heytap.tas "$WALLET_DIR/TasWallet.apk"
+wallet_install com.heytap.htms "$WALLET_DIR/HeytapHTMS.apk"
+wallet_install com.unionpay.tsmservice "$WALLET_DIR/UPTsmService.apk"
+wallet_install com.oplus.eid "$WALLET_DIR/EidService.apk"
+
+# 注册 Sense 的 LSPosed 作用域（含钱包进程），避免装完还要手动进管理器勾选。
+# lspd 的数据库要等 LSPosed 第一次跑起来才存在；装 LSPosed 与本次安装同批时
+# 这里会跳过，由 service.sh 在首次开机后补注册（之后再重启一次生效）。
+LSPD_DB=/data/adb/lspd/config/modules_config.db
+SCOPE_DEX="$MODDIR/installer/lspdscope.dex"
+SENSE_SCOPES="android system com.android.systemui com.android.bluetooth com.android.settings com.miui.securitymanager com.miui.securitycenter org.ifaa.aidl.manager com.xiaomi.finddevice com.android.nfc com.android.se com.finshell.wallet com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.miui.tsmclient"
+
+sense_register_scopes() {
+  if [ ! -f "$LSPD_DB" ] || [ ! -f "$SCOPE_DEX" ]; then
+    log "LSPosed 数据库尚未创建，Sense 作用域由 service.sh 在首次开机后补注册"
+    return 0
+  fi
+  apk_path=$(pm path com.zephiel.sense 2>/dev/null | sed -n 's/^package://p' | head -1)
+  if [ -z "$apk_path" ]; then
+    log "Sense 未安装，跳过作用域注册"
+    return 0
+  fi
+  cp -f "$SCOPE_DEX" /data/local/tmp/rmx5010_lspdscope.dex
+  log "正在注册 Sense 的 LSPosed 作用域 …"
+  ( cd /data/local/tmp && CLASSPATH=rmx5010_lspdscope.dex \
+      /system/bin/app_process /system/bin LspdModule "$LSPD_DB" \
+      com.zephiel.sense "$apk_path" $SENSE_SCOPES ) >> "$LOG" 2>&1
+  rc=$?
+  log "Sense 作用域注册 rc=$rc"
+  rm -f /data/local/tmp/rmx5010_lspdscope.dex
+  # 标记交给 service.sh 的开机兜底看：注册过就不再重复写数据库。
+  [ "$rc" -eq 0 ] && touch "$MODDIR/.sense_scopes_registered" 2>/dev/null
+}
+
+sense_register_scopes
+
+# ------------------------------------------------------------------ 5. 收尾
 if [ "$INSTALLED_ANY" = "1" ]; then
   log "全部完成：重启一次以启用 ZygiskNext / LSPosed / Sense。"
 else

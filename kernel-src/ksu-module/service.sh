@@ -216,6 +216,43 @@ apply_ifaa_policy
   sh "$MODDIR/ctl.sh" status-file >> "$LOG" 2>&1
 ) >> "$LOG" 2>&1 &
 
+# ---- Sense LSPosed scopes: register on first boot if install.sh could not ----
+# When LSPosed is installed in the same batch as this module, its database does
+# not exist yet during install.sh, so the scope registration is skipped there.
+# Fill it in once the daemon has created the database; one more reboot loads the
+# hooks.  The marker keeps later user tweaks from being overwritten.
+(
+  i=0
+  while [ $i -lt 180 ]; do
+    [ "$(getprop sys.boot_completed)" = 1 ] && break
+    sleep 1
+    i=$((i+1))
+  done
+  db=/data/adb/lspd/config/modules_config.db
+  dex="$MODDIR/installer/lspdscope.dex"
+  marker="$MODDIR/.sense_scopes_registered"
+  if [ -f "$marker" ] || [ ! -f "$db" ] || [ ! -f "$dex" ]; then
+    log "sense scopes: skip"
+    exit 0
+  fi
+  apk=$(pm path com.zephiel.sense 2>/dev/null | sed -n 's/^package://p' | head -1)
+  if [ -z "$apk" ]; then
+    log "sense scopes: Sense not installed"
+    exit 0
+  fi
+  cp -f "$dex" /data/local/tmp/rmx5010_lspdscope.dex
+  ( cd /data/local/tmp && CLASSPATH=rmx5010_lspdscope.dex \
+      /system/bin/app_process /system/bin LspdModule "$db" com.zephiel.sense "$apk" \
+      android system com.android.systemui com.android.bluetooth com.android.settings \
+      com.miui.securitymanager com.miui.securitycenter org.ifaa.aidl.manager \
+      com.xiaomi.finddevice com.android.nfc com.android.se com.finshell.wallet \
+      com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.miui.tsmclient ) >> "$LOG" 2>&1
+  rc=$?
+  rm -f /data/local/tmp/rmx5010_lspdscope.dex
+  log "sense scopes: rc=$rc (takes effect after one more reboot)"
+  [ "$rc" -eq 0 ] && touch "$marker"
+) >> "$LOG" 2>&1 &
+
 # OplusCamera default role/runtime permissions after PackageManager has scanned
 # the systemless priv-app mount.
 . "$MODDIR/camera_fix.sh"
