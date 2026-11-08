@@ -54,13 +54,33 @@ camera_mount_dir() {
 camera_mount_bin() {
   src=$1
   target=$2
+  stage="$CAM_TMP/cambin"
   [ -f "$src" ] || return 1
-  chmod 0755 "$src"
-  if [ -x /system/bin/chcon ]; then
-    /system/bin/chcon u:object_r:cameraserver_exec:s0 "$src" 2>/dev/null
+  # /data is mounted nosuid, so a bind mount straight from it onto
+  # /system/bin makes init's exec hit the nosuid_transition check.  SukiSU
+  # 4.3.0-r2 cannot grant that permission: `ksud sepolicy patch/apply` accepts
+  # the allow rule but every later check on the permission fails silently
+  # (no avc message, exec still EACCES).  Stage the binary on a tmpfs instead:
+  # the bind then carries no MS_NOSUID, exactly like the stock file on
+  # /system, so the stock init -> cameraserver rules apply unchanged.
+  if ! grep -q " $stage " /proc/1/mountinfo; then
+    mkdir -p "$stage"
+    if ! nsenter -t 1 -m -- mount -t tmpfs -o mode=0755,size=16M tmpfs "$stage" 2>/dev/null; then
+      log "camera: cameraserver staging tmpfs failed"
+      return 1
+    fi
   fi
-  if nsenter -t 1 -m -- mount --bind "$src" "$target" 2>/dev/null; then
-    log "camera: mounted patched cameraserver"
+  if ! nsenter -t 1 -m -- cp -f "$src" "$stage/cameraserver" 2>/dev/null; then
+    log "camera: cameraserver stage copy failed"
+    return 1
+  fi
+  nsenter -t 1 -m -- chmod 0755 "$stage/cameraserver" 2>/dev/null
+  if [ -x /system/bin/chcon ]; then
+    nsenter -t 1 -m -- chcon u:object_r:cameraserver_exec:s0 \
+      "$stage/cameraserver" 2>/dev/null
+  fi
+  if nsenter -t 1 -m -- mount --bind "$stage/cameraserver" "$target" 2>/dev/null; then
+    log "camera: mounted patched cameraserver (tmpfs stage)"
     return 0
   fi
   log "camera: patched cameraserver mount failed"
@@ -198,17 +218,22 @@ camera_overlay_systemext_privapp() {
 }
 
 camera_apply_policy() {
-  [ -f "$CAM_POLICY" ] || return 1
+  # SukiSU 4.3.0-r2 cannot add usable process types: after
+  # `ksud sepolicy patch "type ..."` the type resolves for runcon (the ksu
+  # domain is permissive, so the avc check is skipped) but zygote still fails
+  # selinux_android_setcontext() with EINVAL for it - and the module-side
+  # sepolicy.rule boot injection behaves the same.  Stock types are fine, so
+  # the camera is labelled with traceur_app (only com.android.traceur uses it)
+  # and that existing type is switched to permissive.  Changing the state of a
+  # stock type does still work through the runtime patcher.
   ksud=/data/adb/ksu/bin/ksud
   [ -x "$ksud" ] || ksud=/data/adb/ksud
   [ -x "$ksud" ] || return 1
-  rules=$(cat "$CAM_POLICY")
-  if "$ksud" sepolicy check "$rules" >/dev/null 2>&1 \
-     && "$ksud" sepolicy patch "$rules" >/dev/null 2>&1; then
-    log "camera: sepolicy patched"
+  if "$ksud" sepolicy patch "permissive traceur_app;" >/dev/null 2>&1; then
+    log "camera: traceur_app permissive"
     return 0
   fi
-  log "camera: sepolicy patch failed"
+  log "camera: permissive patch failed"
   return 1
 }
 
@@ -216,11 +241,12 @@ camera_patch_seapp_contexts() {
   src=/product/etc/selinux/product_seapp_contexts
   [ -f "$src" ] || return 1
   cp -f "$src" "$CAM_TMP/product_seapp_contexts" 2>/dev/null || return 1
-  # The vendor type exported by this OS4 merge is not a usable process type
-  # (setcon returns EINVAL), so label the app with a KSU-created bridge domain
-  # that joins the same versioned camera attribute set.
+  # A KSU-created domain cannot be entered by zygote on the current SukiSU
+  # build (setcontext EINVAL), so borrow a stock app domain.  traceur_app is
+  # only used by com.android.traceur and is made permissive by
+  # camera_apply_policy().
   sed -i '/name=com.oplus.camera/d' "$CAM_TMP/product_seapp_contexts"
-  sed -i '1i user=_app isPrivApp=true name=com.oplus.camera domain=oplus_camera_app2 type=privapp_data_file levelFrom=user' \
+  sed -i '1i user=_app isPrivApp=true name=com.oplus.camera domain=traceur_app type=privapp_data_file levelFrom=user' \
     "$CAM_TMP/product_seapp_contexts"
   camera_mount_file "$CAM_TMP/product_seapp_contexts" "$src" \
     u:object_r:seapp_contexts_file:s0 seapp_contexts
@@ -231,7 +257,7 @@ camera_patch_systemext_seapp() {
   [ -f "$src" ] || return 0
   cp -f "$src" "$CAM_TMP/system_ext_seapp_contexts" 2>/dev/null || return 1
   sed -i '/name=com.oplus.camera/d' "$CAM_TMP/system_ext_seapp_contexts"
-  sed -i '1i user=_app isPrivApp=true name=com.oplus.camera domain=oplus_camera_app2 type=privapp_data_file levelFrom=user'     "$CAM_TMP/system_ext_seapp_contexts"
+  sed -i '1i user=_app isPrivApp=true name=com.oplus.camera domain=traceur_app type=privapp_data_file levelFrom=user'     "$CAM_TMP/system_ext_seapp_contexts"
   camera_mount_file "$CAM_TMP/system_ext_seapp_contexts" "$src"     u:object_r:seapp_contexts_file:s0 system_ext_seapp_contexts
 }
 
@@ -310,8 +336,8 @@ ensure_camera_port() {
 
   # OS4 cameraserver needs the Oplus SAT/XPAN/RAW/timestamp patches and the
   # libcamera_client -> libsatbridge dependency.  Mount it before cameraserver
-  # starts; the source is on /data, so the policy also allows the nosuid init
-  # transition for this one service.
+  # starts; it is staged through a tmpfs so init's exec does not need the
+  # nosuid_transition permission (see camera_mount_bin).
   camera_mount_bin "$CAM_DIR/cameraserver" /system/bin/cameraserver
 
   # RMX P010 vendor format branch for the Oplus camera HAL.
