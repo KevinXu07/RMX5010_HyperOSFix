@@ -54,13 +54,33 @@ camera_mount_dir() {
 camera_mount_bin() {
   src=$1
   target=$2
+  stage="$CAM_TMP/cambin"
   [ -f "$src" ] || return 1
-  chmod 0755 "$src"
-  if [ -x /system/bin/chcon ]; then
-    /system/bin/chcon u:object_r:cameraserver_exec:s0 "$src" 2>/dev/null
+  # /data is mounted nosuid, so a bind mount straight from it onto
+  # /system/bin makes init's exec hit the nosuid_transition check.  SukiSU
+  # 4.3.0-r2 cannot grant that permission: `ksud sepolicy patch/apply` accepts
+  # the allow rule but every later check on the permission fails silently
+  # (no avc message, exec still EACCES).  Stage the binary on a tmpfs instead:
+  # the bind then carries no MS_NOSUID, exactly like the stock file on
+  # /system, so the stock init -> cameraserver rules apply unchanged.
+  if ! grep -q " $stage " /proc/1/mountinfo; then
+    mkdir -p "$stage"
+    if ! nsenter -t 1 -m -- mount -t tmpfs -o mode=0755,size=16M tmpfs "$stage" 2>/dev/null; then
+      log "camera: cameraserver staging tmpfs failed"
+      return 1
+    fi
   fi
-  if nsenter -t 1 -m -- mount --bind "$src" "$target" 2>/dev/null; then
-    log "camera: mounted patched cameraserver"
+  if ! nsenter -t 1 -m -- cp -f "$src" "$stage/cameraserver" 2>/dev/null; then
+    log "camera: cameraserver stage copy failed"
+    return 1
+  fi
+  nsenter -t 1 -m -- chmod 0755 "$stage/cameraserver" 2>/dev/null
+  if [ -x /system/bin/chcon ]; then
+    nsenter -t 1 -m -- chcon u:object_r:cameraserver_exec:s0 \
+      "$stage/cameraserver" 2>/dev/null
+  fi
+  if nsenter -t 1 -m -- mount --bind "$stage/cameraserver" "$target" 2>/dev/null; then
+    log "camera: mounted patched cameraserver (tmpfs stage)"
     return 0
   fi
   log "camera: patched cameraserver mount failed"
@@ -96,7 +116,11 @@ camera_merge_dir() {
 
 camera_overlay_privapp() {
   rw="$CAM_TMP/privapp_rw"
+  # Use the complete 6.070.45 build bundled in this module.  The 6.020
+  # preview APK baked into the product image is missing the pantanal
+  # FileShareProvider dex and crashes com.oplus.camera on launch.
   apk_src="$CAM_DIR/priv-app/MiuiCamera/OplusCamera.apk"
+  [ -f "$apk_src" ] || apk_src=/product/priv-app/OplusCamera/OplusCamera.apk
   lib_src="$CAM_DIR/priv-app/MiuiCamera/lib/arm64"
   stub_src="$CAM_DIR/priv-app/MiuiCamera/MiuiCameraProviderStub.apk"
   gallery_src="$CAM_DIR/priv-app/ColorOSGalleryStub/ColorOSGalleryStub.apk"
@@ -117,9 +141,22 @@ camera_overlay_privapp() {
   nsenter -t 1 -m -- mkdir -p "$rw/upper/OplusCamera/lib/arm64" \
     "$rw/upper/MiuiCameraProviderStub" "$rw/upper/ColorOSGalleryStub" "$rw/work" || return 1
   nsenter -t 1 -m -- cp -f "$apk_src" "$rw/upper/OplusCamera/OplusCamera.apk" || return 1
+  nsenter -t 1 -m -- touch -d @0 "$rw/upper/OplusCamera/OplusCamera.apk" 2>/dev/null || true
+  # Hide any prebuilt oat/vdex for the APK: the overlay carries a patched
+  # classes12.dex, so ART must compile from the APK dex instead of reusing
+  # code compiled from the old one.
+  nsenter -t 1 -m -- mkdir -p "$rw/upper/OplusCamera/oat/arm64" 2>/dev/null
+  nsenter -t 1 -m -- sh -c 'for f in OplusCamera.odex OplusCamera.vdex; do mknod "$0/.wh.$f" c 0 0 2>/dev/null; done' "$rw/upper/OplusCamera/oat/arm64" 2>/dev/null || true
   nsenter -t 1 -m -- chmod 0644 "$rw/upper/OplusCamera/OplusCamera.apk" 2>/dev/null
   if [ -d "$lib_src" ]; then
     nsenter -t 1 -m -- cp -a "$lib_src/." "$rw/upper/OplusCamera/lib/arm64/" || return 1
+    # lib_src must hold only the APK's own libraries plus the few extras the
+    # app needs; never add the unit SDK jar's system_ext JNI libraries here.
+    # The jar loads JNI from the app lib dir first (clns-11), and a copy found
+    # there cannot reach the ODM libraries (libOplusSecurity, libalog) the
+    # system_ext copy reaches through the default namespace:
+    # oplus_camera_config then fails to decrypt, APS drops to version 2 with
+    # no capture decision, and preview/zoom/capture break.
     nsenter -t 1 -m -- chmod 0644 "$rw/upper/OplusCamera/lib/arm64/"*.so 2>/dev/null
   fi
   nsenter -t 1 -m -- cp -f "$stub_src" \
@@ -181,17 +218,22 @@ camera_overlay_systemext_privapp() {
 }
 
 camera_apply_policy() {
-  [ -f "$CAM_POLICY" ] || return 1
+  # SukiSU 4.3.0-r2 cannot add usable process types: after
+  # `ksud sepolicy patch "type ..."` the type resolves for runcon (the ksu
+  # domain is permissive, so the avc check is skipped) but zygote still fails
+  # selinux_android_setcontext() with EINVAL for it - and the module-side
+  # sepolicy.rule boot injection behaves the same.  Stock types are fine, so
+  # the camera is labelled with traceur_app (only com.android.traceur uses it)
+  # and that existing type is switched to permissive.  Changing the state of a
+  # stock type does still work through the runtime patcher.
   ksud=/data/adb/ksu/bin/ksud
   [ -x "$ksud" ] || ksud=/data/adb/ksud
   [ -x "$ksud" ] || return 1
-  rules=$(cat "$CAM_POLICY")
-  if "$ksud" sepolicy check "$rules" >/dev/null 2>&1 \
-     && "$ksud" sepolicy patch "$rules" >/dev/null 2>&1; then
-    log "camera: sepolicy patched"
+  if "$ksud" sepolicy patch "permissive traceur_app;" >/dev/null 2>&1; then
+    log "camera: traceur_app permissive"
     return 0
   fi
-  log "camera: sepolicy patch failed"
+  log "camera: permissive patch failed"
   return 1
 }
 
@@ -199,11 +241,12 @@ camera_patch_seapp_contexts() {
   src=/product/etc/selinux/product_seapp_contexts
   [ -f "$src" ] || return 1
   cp -f "$src" "$CAM_TMP/product_seapp_contexts" 2>/dev/null || return 1
-  # The vendor type exported by this OS4 merge is not a usable process type
-  # (setcon returns EINVAL), so label the app with a KSU-created bridge domain
-  # that joins the same versioned camera attribute set.
+  # A KSU-created domain cannot be entered by zygote on the current SukiSU
+  # build (setcontext EINVAL), so borrow a stock app domain.  traceur_app is
+  # only used by com.android.traceur and is made permissive by
+  # camera_apply_policy().
   sed -i '/name=com.oplus.camera/d' "$CAM_TMP/product_seapp_contexts"
-  sed -i '1i user=_app isPrivApp=true name=com.oplus.camera domain=oplus_camera_app2 type=privapp_data_file levelFrom=user' \
+  sed -i '1i user=_app isPrivApp=true name=com.oplus.camera domain=traceur_app type=privapp_data_file levelFrom=user' \
     "$CAM_TMP/product_seapp_contexts"
   camera_mount_file "$CAM_TMP/product_seapp_contexts" "$src" \
     u:object_r:seapp_contexts_file:s0 seapp_contexts
@@ -214,7 +257,7 @@ camera_patch_systemext_seapp() {
   [ -f "$src" ] || return 0
   cp -f "$src" "$CAM_TMP/system_ext_seapp_contexts" 2>/dev/null || return 1
   sed -i '/name=com.oplus.camera/d' "$CAM_TMP/system_ext_seapp_contexts"
-  sed -i '1i user=_app isPrivApp=true name=com.oplus.camera domain=oplus_camera_app2 type=privapp_data_file levelFrom=user'     "$CAM_TMP/system_ext_seapp_contexts"
+  sed -i '1i user=_app isPrivApp=true name=com.oplus.camera domain=traceur_app type=privapp_data_file levelFrom=user'     "$CAM_TMP/system_ext_seapp_contexts"
   camera_mount_file "$CAM_TMP/system_ext_seapp_contexts" "$src"     u:object_r:seapp_contexts_file:s0 system_ext_seapp_contexts
 }
 
@@ -235,17 +278,21 @@ camera_overlay_system_libs() {
   fi
   nsenter -t 1 -m -- mkdir -p "$rw/ext_upper" "$rw/ext_work" \
     "$rw/sys_upper" "$rw/sys_work" "$rw/fw_upper" "$rw/fw_work" \
-    "$rw/perm_upper" "$rw/perm_work" || return 1
+    "$rw/perm_upper" "$rw/perm_work" "$rw/odm_upper" "$rw/odm_work" || return 1
   nsenter -t 1 -m -- cp -a "$src/system_ext/lib64/." "$rw/ext_upper/" || return 1
   [ -d "$src/lib64" ] && nsenter -t 1 -m -- cp -a "$src/lib64/." "$rw/sys_upper/"
   [ -d "$src/system_ext/framework" ] && nsenter -t 1 -m -- cp -a \
     "$src/system_ext/framework/." "$rw/fw_upper/"
   [ -d "$src/system_ext/etc/permissions" ] && nsenter -t 1 -m -- cp -a \
     "$src/system_ext/etc/permissions/." "$rw/perm_upper/"
+  odm_src="$CAM_DIR/odm/lib64"
+  [ -d "$odm_src" ] && nsenter -t 1 -m -- cp -a "$odm_src/." "$rw/odm_upper/"
 
   if [ -x /system/bin/chcon ]; then
     nsenter -t 1 -m -- chcon -R u:object_r:system_lib_file:s0 \
       "$rw/ext_upper" "$rw/sys_upper" 2>/dev/null
+    nsenter -t 1 -m -- chcon -R u:object_r:same_process_hal_file:s0 \
+      "$rw/odm_upper" 2>/dev/null
     nsenter -t 1 -m -- chcon -R u:object_r:system_file:s0 \
       "$rw/fw_upper" "$rw/perm_upper" 2>/dev/null
   fi
@@ -256,6 +303,11 @@ camera_overlay_system_libs() {
   nsenter -t 1 -m -- mount -t overlay overlay \
     -o "lowerdir=/system/lib64,upperdir=$rw/sys_upper,workdir=$rw/sys_work" \
     /system/lib64 || { log "camera: system lib overlay failed"; return 1; }
+  if [ -d "$odm_src" ]; then
+    nsenter -t 1 -m -- mount -t overlay overlay \
+      -o "lowerdir=/odm/lib64,upperdir=$rw/odm_upper,workdir=$rw/odm_work" \
+      /odm/lib64 || log "camera: odm lib overlay failed"
+  fi
   if [ -d "$src/system_ext/framework" ]; then
     nsenter -t 1 -m -- mount -t overlay overlay \
       -o "lowerdir=/system_ext/framework,upperdir=$rw/fw_upper,workdir=$rw/fw_work" \
@@ -284,8 +336,8 @@ ensure_camera_port() {
 
   # OS4 cameraserver needs the Oplus SAT/XPAN/RAW/timestamp patches and the
   # libcamera_client -> libsatbridge dependency.  Mount it before cameraserver
-  # starts; the source is on /data, so the policy also allows the nosuid init
-  # transition for this one service.
+  # starts; it is staged through a tmpfs so init's exec does not need the
+  # nosuid_transition permission (see camera_mount_bin).
   camera_mount_bin "$CAM_DIR/cameraserver" /system/bin/cameraserver
 
   # RMX P010 vendor format branch for the Oplus camera HAL.

@@ -34,16 +34,51 @@ SELinux 策略片段。mtd 块由本项目从**本机已验证的 OS3 策略**�
   MiCharge/手机管家实现移植，按 RMX5010 的包名、scope 和实际可用类名适配。
 - ColorOS 钱包移植使用同一作者的 `COS-WALLET-FIX` v0.11.0：LSP 兼容模块
   `COS_WALLET_FIX_v0.11.0.apk`，以及 release 包内的 FinShellWallet、TasWallet、
-  HeytapHTMS、UPTsmService、EidService APK/原生库。它们**不在本仓库内**，
-  由 `scripts/install_cos_wallet.sh` 按 SHA-256 从上游 release 下载。第三方
-  APK/JAR/SO 的版权归原权利人，不随本仓库的 MIT/项目授权改变。
+  HeytapHTMS、UPTsmService、EidService APK。模块 1.7.1 起这 5 个 APK 随模块
+  zip 分发（`kernel-src/ksu-module/installer/wallet/`，取自
+  `ColorOS_Wallet_SystemInject_Release1.0.1_A17_noLSP_noSE.zip`，
+  SHA-256 `a8ecb7a9795c310440844c805d4344de35915211b3b824e88908f1cae033da56`，
+  字节未修改）；`scripts/install_cos_wallet.sh` 仍可按同一 SHA-256 从上游
+  release 下载同一套文件。第三方 APK/JAR/SO 的版权归原权利人，不随本仓库的
+  MIT/项目授权改变。
 - `IfaaHooks`、触感兼容层和 SELinux 处理思路参考了该项目的对应实现，
   代码已按 RMX5010 的包名、AIDL 签名、HAL 域名和马达特性重写。
 
 该项目包含 HyperCeiler 派生内容，遵循 AGPLv3；上述派生文件的使用/再分发
 请同时遵守上游项目与 Savitech 的授权。该项目的完整工程请直接从上游获取。
 
-## 5. 其它
+## 5. 参考项目：VioletToolBox
+
+[Smart-Paocai/VioletToolBox](https://github.com/Smart-Paocai/VioletToolBox)（GPL-3.0）：
+欧加（OPPO/一加/真我）线刷工具。本项目只参考其线刷**流程设计**（
+`VioletToolBox/oujiaflash.cs` 的普通线刷与「强力线刷」流程），未复制 C# 代码。
+
+据此重写的脚本：`out/full_image_haotian/flash_os4_rmx5010_haotian_54part.bat`、
+`flash_device_check.ps1`。采纳与未采纳的细节见
+`docs/欧加线刷流程参考_VioletToolBox.md`。
+
+## 6. 模块自带安装器分发的组件
+
+`kernel-src/ksu-module/installer/` 随模块 zip 分发以下第三方 release，安装模块时
+由 `install.sh` 部署到设备（已安装则跳过）：
+
+- `LSPosed-v2.2.1-7912-release.zip`：LSPosed 2.2.1 (7912) 官方 release，
+  GPL-3.0，<https://github.com/LSPosed/LSPosed>
+- `zygisknext-1.5.2.zip`：ZygiskNext 1.5.2 (864-a4a72ce-release) 官方 release，
+  GPL-3.0，<https://github.com/Dr-TSNG/ZygiskNext>
+- `Sense-1.38.apk`：Sense 1.38 的 release 签名副本（代码与已测试的 1.38 一致，
+  仅更换签名密钥）
+- `wallet/*.apk`：ColorOS 钱包 5 件套（FinShellWallet、TasWallet、HeytapHTMS、
+  UPTsmService、EidService），来自 `Maga-King/COS-WALLET-FIX` v0.11.0 的
+  `ColorOS_Wallet_SystemInject_Release1.0.1_A17_noLSP_noSE.zip`
+  （SHA-256 `a8ecb7a9795c310440844c805d4344de35915211b3b824e88908f1cae033da56`），
+  安装模块时由 `install.sh` 装成普通用户应用
+
+这些文件按上游发布原样保留，未修改其代码；分发时请同时遵守各自的 GPL-3.0 条款
+（提供对应源码的获取方式）。
+
+## 7. 其它
 
 - 仓库内的脚本与文档由本项目编写；**授权方式由仓库所有者决定**（如需开源发布，请自行添加 `LICENSE`）。
 - 不包含任何私钥、签名材料或设备唯一标识。刷机脚本中出现的序列号占位符请替换为你自己的设备。
+

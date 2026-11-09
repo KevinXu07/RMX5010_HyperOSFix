@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<permissions>
+    <library name="oplus-fwk" file="/system_ext/framework/oplus-fwk.jar" />
+    <library name="com.oplus.camera.unit.sdk.adapter" file="/system_ext/framework/com.oplus.camera.unit.sdk.adapter.jar" />
+    <library name="com.oplus.camera.unit.sdk" file="/system_ext/framework/com.oplus.camera.unit.sdk.jar" dependency="oplus-fwk" />
+</permissions>

@@ -1,7 +1,13 @@
 # 镜像与构建产物（体积大，不入库）
 *.img
 *.raw.img
-out/
+out/*
+!out/full_image_haotian/
+out/full_image_haotian/*
+# 刷机脚本与说明是发布包的唯一来源，入库（镜像、platform-tools、optional 等仍忽略）
+!out/full_image_haotian/*.bat
+!out/full_image_haotian/*.ps1
+!out/full_image_haotian/*.md
 work/
 stage/
 _before_account_fix/
@@ -38,3 +44,5 @@ tools/ifaaprobe/build/
 tools/ifaaprobe/classes/
 tools/ifaaprobe/dex/
 tools/ifaaprobe/gen/
+tools/lspd/out/
+tools/udev/out/

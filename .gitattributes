@@ -12,6 +12,10 @@
 *.xml text eol=lf
 *.md text eol=lf
 *.prop text eol=lf
+# Windows 刷机脚本必须保持 CRLF：cmd 在只有 LF 的 .bat 上跳转标签会失败。
+# 包内的 .bat 是 GBK 编码，仓库里按字节保存为二进制，避免编码/行尾被改写。
+out/full_image_haotian/*.bat binary
+*.ps1 text eol=crlf
 *.rc text eol=lf
 *.rule text eol=lf
 # 二进制载荷：不要做行尾/编码转换
@@ -25,3 +29,9 @@
 patches/xiaomi-account/payload/** binary
 # 第三方原样快照：不做任何规范化
 upstream/** binary
+*.apk filter=lfs diff=lfs merge=lfs -text
+*.so filter=lfs diff=lfs merge=lfs -text
+*.zip filter=lfs diff=lfs merge=lfs -text
+*.ko filter=lfs diff=lfs merge=lfs -text
+*.jar filter=lfs diff=lfs merge=lfs -text
+*.bin filter=lfs diff=lfs merge=lfs -text

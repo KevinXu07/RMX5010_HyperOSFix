@@ -15,6 +15,28 @@ log() {
 
 log "post-fs-data uptime: $(cat /proc/uptime 2>/dev/null)"
 
+# ---- display overlays: donor originals carry 140px/169px + 38px padding;
+# the port build wants 116/160 + 74/14. Bind size/mtime-matched patched
+# overlays before PackageManager scans /product; a cache miss drops the
+# overlay and the base framework (116/160) still applies.
+overlay_mount() {
+  src="$MODDIR/overlay/$1"
+  dst="$2"
+  [ -f "$src" ] || return 0
+  chmod 0644 "$src" 2>/dev/null
+  if [ -x /system/bin/chcon ]; then
+    /system/bin/chcon u:object_r:system_file:s0 "$src" 2>/dev/null
+  fi
+  touch -d @0 "$src" 2>/dev/null
+  if nsenter -t 1 -m -- mount --bind "$src" "$dst" 2>>"$LOG"; then
+    log "overlay: mounted $1"
+  else
+    log "overlay: mount failed $1"
+  fi
+}
+overlay_mount DevicesAndroidOverlay.apk /product/overlay/DevicesAndroidOverlay.apk
+overlay_mount DevicesOverlay.apk /product/overlay/DevicesOverlay.apk
+
 # ---- touch report-rate config ----
 . "$MODDIR/touch_config.sh"
 ensure_touch_config
