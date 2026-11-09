@@ -206,7 +206,7 @@ wallet_install com.oplus.eid "$WALLET_DIR/EidService.apk"
 # 这里会跳过，由 service.sh 在首次开机后补注册（之后再重启一次生效）。
 LSPD_DB=/data/adb/lspd/config/modules_config.db
 SCOPE_DEX="$MODDIR/installer/lspdscope.dex"
-SENSE_SCOPES="android system com.android.systemui com.android.bluetooth com.android.settings com.miui.securitymanager com.miui.securitycenter org.ifaa.aidl.manager com.xiaomi.finddevice com.android.nfc com.android.se com.finshell.wallet com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.miui.tsmclient"
+SENSE_SCOPES="android system com.android.systemui com.android.bluetooth com.android.settings com.miui.securitymanager com.miui.securitycenter org.ifaa.aidl.manager com.xiaomi.finddevice com.android.nfc com.android.se com.finshell.wallet com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.miui.tsmclient com.oplus.camera"
 
 sense_register_scopes() {
   if [ ! -f "$LSPD_DB" ] || [ ! -f "$SCOPE_DEX" ]; then
@@ -227,7 +227,8 @@ sense_register_scopes() {
   log "Sense 作用域注册 rc=$rc"
   rm -f /data/local/tmp/rmx5010_lspdscope.dex
   # 标记交给 service.sh 的开机兜底看：注册过就不再重复写数据库。
-  [ "$rc" -eq 0 ] && touch "$MODDIR/.sense_scopes_registered" 2>/dev/null
+  # v2: 增加 com.oplus.camera（相册缩略图 hook），旧标记会让开机兜底跳过。
+  [ "$rc" -eq 0 ] && touch "$MODDIR/.sense_scopes_registered_v2" 2>/dev/null
 }
 
 sense_register_scopes

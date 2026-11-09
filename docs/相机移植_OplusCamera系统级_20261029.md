@@ -150,6 +150,12 @@ isSupportMediaInfoInsert=false
 
 模块 post-boot 在包不存在时 `pm install -r`。它只解决“包/元数据存在”，不提供真实相册。
 
+1.2（versionCode 3）起，stub 的 manifest 删掉了原来那个 `android.app.Activity` 的
+MAIN/LAUNCHER 声明——它只用于占位，却会在桌面留下一个名为 "Gallery" 的空白图标。
+源码 `kernel-src/ksu-module/camera/priv-app/ColorOSGalleryStub/AndroidManifest.xml`，
+重建脚本 `scripts/build_gallery_stub.sh`；签名沿用原来的 Android debug key，
+保证 `pm install -r` 能覆盖旧包。
+
 ---
 
 ## 7. ODM `camera_unit_config` 改动
@@ -1440,3 +1446,61 @@ code 4，App 不再自杀；同时在 `ImageReader.acquireNextImage` 的 after-h
 - 实况编码器回收预览帧时反射 `ImageReader.nativeGetConsumer`（ColorOS 框架私有方法，本机没有），每帧报
   `attachImageBufferToBufferQueue failed`；目前不影响成片，只是日志噪音和 buffer 无法回队，留待以后处理。
 - 修复前那次 22:38 的实况（`IMG20261109223830.jpg`）因为闪退只保存了静态图。
+
+### 13.28 隐藏桌面的 "Gallery" 图标（2026-11-09）
+
+**现象**：桌面上有一个名为 "Gallery" 的图标，点开是空白页。它来自相册占位包
+`com.coloros.gallery3d`（`ColorOSGalleryStub.apk`），manifest 里声明了一个
+`android.app.Activity` + MAIN/LAUNCHER，只为占位却生成了桌面图标。
+
+**修复**：重建占位包，删掉整个 activity（该包只提供 meta-data，`hasCode=false`），
+版本 1.1/2 → 1.2/3，签名沿用原来的 Android debug key。源码
+`kernel-src/ksu-module/camera/priv-app/ColorOSGalleryStub/AndroidManifest.xml`，
+重建脚本 `scripts/build_gallery_stub.sh`。
+
+**部署**：模块目录和运行中的 `/product/priv-app` overlay 同步替换后执行
+`pm install -r`（同签名、versionCode 升到 3）。
+
+**验证**：
+
+- `cmd package query-activities -a android.intent.action.MAIN -c android.intent.category.LAUNCHER`
+  不再返回 `com.coloros.gallery3d`，桌面截图无 "Gallery" 图标；
+- `dumpsys package com.coloros.gallery3d`：versionCode=3，5 条 meta-data 都在；
+- 相机点缩略图仍能拉起 `com.miui.gallery/.activity.ExternalPhotoPageActivity`。
+
+### 13.29 旧版升级兼容：桌面残留 Gallery 图标与相册跳转失效（2026-11-10）
+
+**现象**（用户升级 1.7.4 后反馈）：桌面仍有名为 "Gallery" 的图标；相机点相册缩略图
+不再跳到小米相册。
+
+**根因 1：旧占位包是 data app，遮蔽了 /product 里的新版本。**
+1.1/versionCode 2 的 `com.coloros.gallery3d` 是 `camera_post_boot` 用 `pm install -r`
+装成 data app 的；data app 优先于 `/product/priv-app` 里的同名系统包。1.7.4 的安装
+逻辑只在 `pm path` 找不到包时才安装，老用户的数据包一直停在 versionCode 2（manifest
+里还带 MAIN/LAUNCHER Activity），所以桌面图标仍在。
+
+**根因 2：Sense 作用域漏了 com.oplus.camera。**
+`CameraGalleryHooks` 在 `com.oplus.camera` 进程里把 `yn.h1.a()` 的返回值改成
+`com.miui.gallery`，但 `install.sh` / `service.sh` 注册的 LSPosed 作用域列表里没有
+`com.oplus.camera`。开发机上的作用域是手工加的，所以 13.11 的验收能通过，用户机器上
+hook 从未加载。1.7.4 的 stub 去掉空白 Activity 后，缩略图从"打开空白页"变成"没有反应"。
+
+**修复**：
+
+- `camera_post_boot`：读取已装包的 `versionCode`，低于 3 就 `pm install -r` 升级
+  （同签名，1.1/2 → 1.2/3）；不再只判断包是否存在。
+- `install.sh`、`service.sh`、`scripts/register_sense_lsposed.sh` 的 Sense 作用域
+  加入 `com.oplus.camera`。
+- `service.sh` 的注册完成标记改为 `.sense_scopes_registered_v2`：老用户下次开机会
+  补注册一次（`LspdModule` 只 `INSERT OR IGNORE`，不会删除已有作用域）。
+
+**验证**（本机）：
+
+- 安装带 Launcher 的 v2 测试包：`versionCode=2`，
+  `resolve-activity` 返回 `com.coloros.gallery3d/.Launcher`；执行升级逻辑后
+  `versionCode=3`，`resolve-activity` 返回 `No activity found`。
+- 用 LSPosed 数据库副本执行 `LspdModule ... com.oplus.camera`：作用域 17 条，
+  原有条目不变，`modules_state` enabled=1。
+
+**版本**：1.7.5 / versionCode 42。用户更新模块后需重启一次，LSPosed 才会把
+`CameraGalleryHooks` 加载进相机进程。

@@ -431,9 +431,16 @@ camera_post_boot() {
     i=$((i+1))
   done
   sleep 2
-  if ! pm path com.coloros.gallery3d >/dev/null 2>&1; then
+  # Older module versions installed this stub as a data app.  A data app
+  # shadows the /product copy, so an old stub (1.1/versionCode 2, which still
+  # declared a MAIN/LAUNCHER activity) keeps its blank "Gallery" icon after
+  # the module is updated even though the bundled stub has no activity.
+  # Upgrade whenever the installed copy is older than 1.2/versionCode 3.
+  cur=$(dumpsys package com.coloros.gallery3d 2>/dev/null \
+        | sed -n 's/^ *versionCode=\([0-9][0-9]*\).*/\1/p' | head -1)
+  if [ "${cur:-0}" -lt 3 ] 2>/dev/null; then
     out=$(pm install -r "$CAM_DIR/priv-app/ColorOSGalleryStub/ColorOSGalleryStub.apk" 2>&1)
-    log "camera: gallery stub install ${out:-ok}"
+    log "camera: gallery stub install (was ${cur:-missing}) ${out:-ok}"
   fi
   if ! pm path com.xiaomi.camera.parallelservice.stub >/dev/null 2>&1; then
     out=$(pm install -r "$CAM_DIR/priv-app/MiuiCamera/MiuiCameraProviderStub.apk" 2>&1)
@@ -449,7 +456,15 @@ camera_post_boot() {
            android.permission.READ_MEDIA_IMAGES android.permission.READ_MEDIA_VIDEO; do
     pm grant com.oplus.camera "$p" >/dev/null 2>&1
   done
-  cmd role remove-role-holder android.app.role.SYSTEM_CAMERA com.android.camera 0 >/dev/null 2>&1
-  out=$(cmd role add-role-holder android.app.role.SYSTEM_CAMERA com.oplus.camera 0 2>&1)
-  log "camera: role ${out:-ok}"
+  # HyperOS does not define android.app.role.SYSTEM_CAMERA; add-role-holder
+  # then fails with RuntimeException("Failed") and logs an error on every
+  # boot.  The default camera still resolves through the intent filter
+  # (OplusCamera is the only camera installed), so skip when absent.
+  if dumpsys role 2>/dev/null | grep -q 'name=android.app.role.SYSTEM_CAMERA'; then
+    cmd role remove-role-holder android.app.role.SYSTEM_CAMERA com.android.camera 0 >/dev/null 2>&1
+    out=$(cmd role add-role-holder android.app.role.SYSTEM_CAMERA com.oplus.camera 0 2>&1)
+    log "camera: role ${out:-ok}"
+  else
+    log "camera: role skipped (SYSTEM_CAMERA not defined on this ROM)"
+  fi
 }
