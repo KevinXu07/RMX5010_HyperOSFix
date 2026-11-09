@@ -1342,9 +1342,17 @@ code 4，App 不再自杀；同时在 `ImageReader.acquireNextImage` 的 after-h
    `OplusFaceBeautyPreviewHelper.process` 的第 4 个参数为 null 时，换成全 0 的 `int[32]`。
 3. **电影模式冷启动原生崩溃**（`lib2DSlender.so` `aiface::AiFaceOdnn::initModel+488`）：13.24 的 vndksupport 回退让美颜库
    真正加载了，但 AI 祛斑 dlopen 的是 `"/odm/lib64" + "/libODNN.so"`，app 命名空间打不开，返回的 NULL 句柄被直接解引用。
-   用 `scripts/patch_lib2dslender_odnn.py` 打二进制补丁：两处 SSO 长度 `mov w8,#0x14 → #0`，后缀改成 `libODNN.so`，
-   于是变成按库名加载。模块把补丁后的 `lib2DSlender.so`（md5 `ccfe0188`）以及 ODM 的 `libODNN.so` / `libzlib.so`
+   用 `scripts/patch_lib2dslender.py` 打二进制补丁：两处 SSO 长度 `mov w8,#0x14 → #0`，后缀改成 `libODNN.so`，
+   于是变成按库名加载。模块把补丁后的 `lib2DSlender.so`（md5 `612f500f`）以及 ODM 的 `libODNN.so` / `libzlib.so`
    放进 priv-app lib 目录。实测 `CreateSession success`，之后不再崩溃。
+   **1.7.3 追加**：同一个库的 `VideoBeautyEditionOne::process` → `adjustParam` 会无条件解引用
+   `op_param_data_t+0x78`（可选的 per-face 自定义参数数组，步长 0x94）。OplusCamera 6.070.45 的预览 JNI
+   （`libApsFaceBeautyPreviewJni.so` 的 `APSPreviewProcess::process` 等三个 processor）在栈上构造该结构时从不填
+   +0x78，且 `adjustParam` 的循环次数被 `csel` 钳到至少 4 次，于是预览美颜一跑就空指针（`adjustParam+836`，
+   `ldr w15,[x15,x8]`，fault addr 0）。补丁把 `process` 参数校验块最后一条
+   `ldr x8,[x22,#0x28]`（文件偏移 0xE4020，`0xF94016C8`）改成 `ldr x8,[x22,#0x78]`（`0xF9403EC8`），
+   缺数组的调用方走原有的 invalid-param 早退（返回 -1），提供数组的调用方不受影响；能走到 `adjustParam` 的调用方
+   一定填了 +0x28，所以去掉那条检查不会放过空 +0x28。原库 md5 `ec189586`，补丁后 `612f500f`。
 4. **星空被映射成普通模式**：13.14 实验留下的 star→common hook 让星空请求拿不到 trigger（只发 8 帧、不出 JPEG）。
    Sense 1.38 的 `CameraProModeHooks` 只保留 professional_mode→common。
 5. **SELinux 反向拒绝**（enforcing 一侧的拒绝，app 域本身是 permissive）：补充
