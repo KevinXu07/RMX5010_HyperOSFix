@@ -17,29 +17,39 @@ Two independent problems are fixed here.
    The result is dlopen("libODNN.so"), which resolves to the copy the module
    places in /product/priv-app/OplusCamera/lib/arm64 (with libzlib.so).
 
-2. Preview face-beauty NULL dereference (launch / front camera SIGSEGV)
-   VideoBeautyEditionOne::process (file offset 0xf3fc8) validates its
-   op_param_data_t argument at +8 / +0x10 / +0x20 / +0x28 and then calls
-   adjustParam(), which reads the optional per-face custom-params array at
-   op_param_data_t+0x78 unconditionally:
-       f4020  ldr  x8, [x22, #0x28]      <- last validation
-       ...
-       ee06c  ldr  x15, [x21, #0x78]     <- optional array (NULL here)
-       ee070  ldr  w15, [x15, x8]        <- SIGSEGV, fault addr 0
-   The preview JNI (APSPreviewProcess::process in
-   libApsFaceBeautyPreviewJni.so) builds that struct on the stack and never
-   sets +0x78, so the beauty preview path always faults on PreviewGLThread
-   as soon as it runs (front camera / portrait mode with a face in view).
-   Since the loop count is clamped to at least 4 (csel at 0xedd60) the
-   block is reached even with zero faces.
+2. Preview face-beauty NULL dereference (beauty on -> SIGSEGV / black preview)
+   VideoBeautyEditionOne::process -> adjustParam (virtual 0xedd2c)
+   reads the optional per-face custom-params array at op_param_data_t+0x78
+   unconditionally, five ints per face with stride 0x94:
 
-   Fix: make the last validation test the optional array instead:
-       f4020  ldr  x8, [x22, #0x78]
-   A caller that does not provide the custom-params array now takes the
-   existing "invalid param" early return (-1) instead of entering
-   adjustParam(); callers that do provide it are unaffected.  Callers that
-   reach adjustParam() always set +0x28 (adjustParam dereferences it), so
-   dropping that particular check cannot let a NULL +0x28 through.
+       edd4c  ldr  w8, [x1, #4]        ; caller's count
+       edd60  csel w8, w8, #4, lt      ; count = max(count, 4)  -> always >= 4
+       ee06c  ldr  x15, [x21, #0x78]   ; custom array (NULL here)
+       ee070  ldr  w15, [x15, x8]      ; SIGSEGV, fault addr 0
+
+   (virtual addresses; .text is mapped 0x10000 above its file offset, so
+   0xee06c is file offset 0xde06c.)
+
+   The OplusCamera 6.070.45 preview JNI (APSPreviewProcess::process in
+   libApsFaceBeautyPreviewJni.so) builds that struct on the stack and never
+   sets +0x78 (the field is inside the zeroed block at sp+0x1e8..0x207 and
+   is never written), so the beauty preview path faults on PreviewGLThread
+   as soon as beauty is enabled, with or without a face in view.
+
+   Simply rejecting the call is not an option: the JNI drops the frame when
+   Slender2D_process returns non-zero, which turns the preview black in
+   every mode.  Instead the five +0x78 loads are redirected to the main
+   per-face parameter array at +0x28:
+
+       ee06c  ldr  x15, [x21, #0x28]
+       ...    (same at 0xee084 / 0xee0a0 / 0xee0bc / 0xee0dc)
+
+   +0x28 is validated non-NULL by VideoBeautyEditionOne::process before
+   adjustParam is reached, it holds the same kind of 0..100 beauty values,
+   and every value read here is clamped (csel/bic) before use, so the
+   per-face overrides simply fall back to the user's global beauty
+   settings instead of crashing.  Callers that do provide a +0x78 array
+   lose their per-face overrides, but no caller in this app provides one.
 
 usage: patch_lib2dslender.py <in.so> <out.so>
 """
@@ -50,9 +60,9 @@ import sys
 SRC_MD5 = "ec189586050cfab7fe29b2148c03a266"
 MOV_W8_0X14 = 0x52800288
 MOV_W8_0 = 0x52800008
-LDR_X8_X22_0X28 = 0xF94016C8  # ldr x8, [x22, #0x28]
-LDR_X8_X22_0X78 = 0xF9403EC8  # ldr x8, [x22, #0x78]
-PREVIEW_CHECK_OFF = 0xE4020
+LDR_X15_X21_0X78 = 0xF9403EAF  # ldr x15, [x21, #0x78]
+LDR_X15_X21_0X28 = 0xF94016AF  # ldr x15, [x21, #0x28]
+CUSTOM_PARAM_LOADS = (0xDE06C, 0xDE084, 0xDE0A0, 0xDE0BC, 0xDE0DC)
 
 
 def main(src, dst):
@@ -67,9 +77,10 @@ def main(src, dst):
     if data[0x2F8E4:0x2F8F0] != b"/libODNN.so\x00":
         sys.exit("suffix string mismatch")
     data[0x2F8E4:0x2F8F0] = b"libODNN.so\x00\x00"
-    if struct.unpack_from("<I", data, PREVIEW_CHECK_OFF)[0] != LDR_X8_X22_0X28:
-        sys.exit("preview check mismatch at 0x%x" % PREVIEW_CHECK_OFF)
-    struct.pack_into("<I", data, PREVIEW_CHECK_OFF, LDR_X8_X22_0X78)
+    for off in CUSTOM_PARAM_LOADS:
+        if struct.unpack_from("<I", data, off)[0] != LDR_X15_X21_0X78:
+            sys.exit("custom param load mismatch at 0x%x" % off)
+        struct.pack_into("<I", data, off, LDR_X15_X21_0X28)
     open(dst, "wb").write(data)
     print("patched", dst, hashlib.md5(data).hexdigest())
 
