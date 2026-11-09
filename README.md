@@ -75,6 +75,14 @@
 | `upstream/` | 第三方来源包的原样快照（不修改） |
 | `tools/` | 一次性分析工具（挂载、差分、策略核对） |
 
+## 大文件与发布包
+
+本仓库需要入库整机移植用的二进制载荷（相机 APK、相机/算法库、ZygiskNext / LSPosed / Sense、ColorOS 钱包 5 件套等），其中单文件最大 193 MB（`kernel-src/ksu-module/camera/priv-app/MiuiCamera/OplusCamera.apk`），超过 GitHub 普通 Git 的 100 MB 单文件限制，因此 `*.apk` / `*.so` / `*.zip` / `*.ko` / `*.jar` / `*.bin` 由 **Git LFS** 存储。
+
+- 克隆前先装 Git LFS（`git lfs install`），否则大文件只会拉取到指针文件。
+- 只想要刷机包、不参与开发时，直接下载 Releases 里的发布包（完整镜像 + 模块 + 刷写脚本），不需要克隆仓库。
+- LFS 免费额度有限（1 GB 存储 / 1 GB 月流量），请避免反复整历史克隆。
+
 ## 快速开始（应用小米账号修复到你的包）
 
 前提：Linux / WSL 环境，具备 `mkfs.erofs`、`fsck.erofs`、`simg2img`、`img2simg`、`erofsfuse`，并已解出基线 `odm.img` / `vendor.img`。
