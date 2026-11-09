@@ -48,6 +48,8 @@ JAVA_HOME="$JAVA_HOME" "$BT/apksigner.bat" sign \
   --ks-pass "pass:$DEBUG_KEYPASS" \
   --key-pass "pass:$DEBUG_KEYPASS" \
   --out "$(win "$OUT")" "$(win "$ALIGNED")"
+# apksigner writes a v4 .idsig next to the output; the module does not use it.
+rm -f "$OUT.idsig"
 
 "$BT/aapt2.exe" dump badging "$(win "$OUT")" | grep -E '^package:|launchable-activity' || true
 if "$BT/aapt2.exe" dump badging "$(win "$OUT")" | grep -q 'launchable-activity'; then
