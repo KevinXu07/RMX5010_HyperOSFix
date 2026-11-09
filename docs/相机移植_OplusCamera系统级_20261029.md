@@ -1416,3 +1416,27 @@ code 4，App 不再自杀；同时在 `ImageReader.acquireNextImage` 的 after-h
 - Sense 源码目录 `E:/code/modify/Sense` 里的 `gt7profodfix` 比本仓库 `lsposed-src` 多十几个相机 hook，
   **不要跑 `scripts/sync_sense_hooks.sh`**（会整目录覆盖，把它们删掉）；本轮的 `CameraDeferHooks` 两边各放了一份。
 - 模块 `installer/` 里自带的仍是 Sense 1.38，全新安装的机器拿不到这个修复，需要单独装 1.41。
+
+### 13.27 实况照片只保存成静态图：缺 libextendfile.so，写视频时相机闪退（2026-11-09）
+
+**现象**：照片模式后摄打开实况，成片总是静态 JPEG（约 4 MB）。
+
+**定位**：实况录像本身是好的——`VideoProcessor ... stopCapture ... frameCount:84`，视频已写到
+`/data/vendor/camera_process/0/livephoto/<id>_main`，随后 `OCAM_Storage: saveLivePhoto` 调
+`Util.jniLoadLibrary("FileExtender-jni")`，加载 `/system_ext/lib64/libFileExtender-jni(.qti).so` 时报
+`dlopen failed: library "libextendfile.so" not found`，`UnsatisfiedLinkError` 没人接，`deferJobThread` **FATAL，整个相机进程崩溃**，
+只剩之前已经写好的静态 JPEG。模块早就把 `libFileExtender-jni.so`（md5 `7ae12b36`）放进 `/system_ext/lib64`，但没带它的依赖。
+
+**修复**：从 201 原厂 `my_product/lib64/` 取同一套里的 `libextendfile.so`（md5 `09bfcbb1258d8bfce4d497cbd4be343e`，
+只依赖 `liblog/libm/libdl/libc`；201 的 `odm/lib64` 里另有一个不同的 vendor 版 `79bbf037`，不要用）放进模块
+`system/system_ext/lib64/`，开机随 camera_fix 的 `/system_ext/lib64` overlay 一起生效。
+
+**验证**（22:42:57，后摄照片模式）：`FileExtender: setExtensionTag, tag: LivePhoto` → `saveLivePhoto, cost: 103 ms, writeSubVideoResult: true`，
+无崩溃；`IMG20261109224257.jpg` 7.6 MB，XMP 为 Google Motion Photo v1（`GCamera:MotionPhoto=1`，`OpCamera:OLivePhotoVersion=2`），
+尾部 `video/mp4` 3,519,147 B，ffprobe：HEVC 1920×1440 87 帧 2.9 s + AAC。小米相册打开显示「动态照片」。
+
+**备注**：
+- 暗光下原厂会自动开夜景并关闭实况（`close livePhoto because auto night or group photo detect`），这是原厂行为，不是 bug。
+- 实况编码器回收预览帧时反射 `ImageReader.nativeGetConsumer`（ColorOS 框架私有方法，本机没有），每帧报
+  `attachImageBufferToBufferQueue failed`；目前不影响成片，只是日志噪音和 buffer 无法回队，留待以后处理。
+- 修复前那次 22:38 的实况（`IMG20261109223830.jpg`）因为闪退只保存了静态图。
