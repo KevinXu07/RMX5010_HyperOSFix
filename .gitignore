@@ -44,3 +44,5 @@ tools/ifaaprobe/build/
 tools/ifaaprobe/classes/
 tools/ifaaprobe/dex/
 tools/ifaaprobe/gen/
+tools/lspd/out/
+tools/udev/out/
