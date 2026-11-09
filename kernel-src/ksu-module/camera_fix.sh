@@ -449,7 +449,15 @@ camera_post_boot() {
            android.permission.READ_MEDIA_IMAGES android.permission.READ_MEDIA_VIDEO; do
     pm grant com.oplus.camera "$p" >/dev/null 2>&1
   done
-  cmd role remove-role-holder android.app.role.SYSTEM_CAMERA com.android.camera 0 >/dev/null 2>&1
-  out=$(cmd role add-role-holder android.app.role.SYSTEM_CAMERA com.oplus.camera 0 2>&1)
-  log "camera: role ${out:-ok}"
+  # HyperOS does not define android.app.role.SYSTEM_CAMERA; add-role-holder
+  # then fails with RuntimeException("Failed") and logs an error on every
+  # boot.  The default camera still resolves through the intent filter
+  # (OplusCamera is the only camera installed), so skip when absent.
+  if dumpsys role 2>/dev/null | grep -q 'name=android.app.role.SYSTEM_CAMERA'; then
+    cmd role remove-role-holder android.app.role.SYSTEM_CAMERA com.android.camera 0 >/dev/null 2>&1
+    out=$(cmd role add-role-holder android.app.role.SYSTEM_CAMERA com.oplus.camera 0 2>&1)
+    log "camera: role ${out:-ok}"
+  else
+    log "camera: role skipped (SYSTEM_CAMERA not defined on this ROM)"
+  fi
 }
