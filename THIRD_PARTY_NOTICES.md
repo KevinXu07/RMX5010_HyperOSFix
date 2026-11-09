@@ -66,8 +66,9 @@ SELinux 策略片段。mtd 块由本项目从**本机已验证的 OS3 策略**�
   GPL-3.0，<https://github.com/LSPosed/LSPosed>
 - `zygisknext-1.5.2.zip`：ZygiskNext 1.5.2 (864-a4a72ce-release) 官方 release，
   GPL-3.0，<https://github.com/Dr-TSNG/ZygiskNext>
-- `Sense-1.38.apk`：Sense 1.38 的 release 签名副本（代码与已测试的 1.38 一致，
-  仅更换签名密钥）
+- `Sense-1.41.apk`：Sense 1.41 的 release 签名构建（`CN=Sense, OU=RMX5010,
+  O=zephiel`；在已测试的 1.38 基础上只新增相机 `CameraDeferHooks`，
+  让 APS 延迟拍照任务在前台执行）
 - `wallet/*.apk`：ColorOS 钱包 5 件套（FinShellWallet、TasWallet、HeytapHTMS、
   UPTsmService、EidService），来自 `Maga-King/COS-WALLET-FIX` v0.11.0 的
   `ColorOS_Wallet_SystemInject_Release1.0.1_A17_noLSP_noSE.zip`

@@ -107,7 +107,7 @@ install_module zygisksu "$MODDIR/installer/zygisknext-1.5.2.zip" "ZygiskNext"
 install_module zygisk_lsposed "$MODDIR/installer/LSPosed-v2.2.1-7912-release.zip" "LSPosed"
 
 # ------------------------------------------------------------- 3. Sense APK
-SENSE_APK="$MODDIR/installer/Sense-1.38.apk"
+SENSE_APK="$MODDIR/installer/Sense-1.41.apk"
 if [ -n "$(pm path com.zephiel.sense 2>/dev/null)" ]; then
   log "Sense 已安装，跳过。若要换成本包的 release 签名，请先卸载 com.zephiel.sense 再重新安装本模块。"
 else

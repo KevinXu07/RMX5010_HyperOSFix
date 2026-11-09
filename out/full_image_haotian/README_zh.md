@@ -140,15 +140,17 @@ bootloader 阶段和 `-w`，数据本来就是清的）。
 3. 模块 1.7.1 自带安装器，安装时会自动部署：
    - ZygiskNext 1.5.2（已安装则跳过）
    - LSPosed 2.2.1 (7912)（已安装则跳过）
-   - Sense 1.38（已安装则跳过；本包内是 release 签名版）
+   - Sense（已安装则跳过；1.7.1 包内是 1.38 release 签名版，1.41 见第 4 步）
    - ColorOS 钱包 5 件套（FinShellWallet / TasWallet / HeytapHTMS /
      UPTsmService / EidService，已安装则跳过）
    安装器还会直接把 Sense 的 LSPosed 作用域（含钱包进程）写进 LSPosed
    配置，不需要手动勾选。安装完成后重启一次；如果本次新装了 LSPosed
    （当时数据库还没生成），首次开机后模块会自动补注册，再重启一次即可。
-4. Sense 也可以在装完 LSPosed 后手动安装 `camera_fix/Sense-1.38.apk`
-   （本次新增：人脸录入修复 + 灵动岛 74px / 状态栏 padding 14px）。
-   手机上已有 debug 签名的 Sense 时不能覆盖安装，需要先卸载
+4. Sense 也可以在装完 LSPosed 后手动安装 `camera_fix/Sense-1.41.apk`
+   （1.41 在 1.38 基础上新增 `CameraDeferHooks`：人像等 APS 延迟拍照在前台
+   就处理，不再要退到后台才落盘；1.38 起已含人脸录入修复 + 灵动岛 74px /
+   状态栏 padding 14px）。1.41 与模块内的 1.38 是同一个 release 签名，
+   可直接覆盖安装。手机上已有 debug 签名的 Sense 时不能覆盖安装，需要先卸载
    `com.zephiel.sense` 再装，然后在 LSPosed 里重新启用、重勾作用域。
 5. 相机、星空、多景、相册桥接、触感、人脸录入、灵动岛修复才会完整生效。
    未启用 Sense 前，灵动岛为 donor 默认位置、人脸录入可能卡在进度环（预期）。
@@ -192,9 +194,9 @@ bootloader 阶段和 `-w`，数据本来就是清的）。
 ## 第三方组件与授权
 
 - `optional/SukiSU_v4.2.0_40900-release.apk`：SukiSU 项目发布版，版权归其作者。
-- `camera_fix/Sense-1.38.apk`：Sense 项目提供的 LSPosed 模块，版权归其作者；
-  本包中的副本用 `CN=Sense, OU=RMX5010, O=zephiel` 的 release 密钥重新签名，
-  代码与 1.38 一致。
+- `camera_fix/Sense-1.41.apk`：Sense 项目提供的 LSPosed 模块，版权归其作者；
+  本包中的副本用 `CN=Sense, OU=RMX5010, O=zephiel` 的 release 密钥签名，
+  代码为 1.38 加上相机 `CameraDeferHooks`（前台执行 APS 延迟拍照任务）。
 - 模块 zip 内 `installer/` 打包了 LSPosed 2.2.1 (7912) 与 ZygiskNext 1.5.2
   的官方 release，二者均为 GPL-3.0，源码见各自仓库
   （<https://github.com/LSPosed/LSPosed>、<https://github.com/Dr-TSNG/ZygiskNext>）。
@@ -216,7 +218,7 @@ optional/init_boot_sukisu.img
 optional/SukiSU_v4.2.0_40900-release.apk
 official_vbmeta/        原厂 vbmeta 三件套（先在 bootloader 刷入以进入 fastbootd，收尾时覆盖为 flags=3 版本）
 camera_fix/rmx5010_fod_bridge-1.7.1-full.zip
-camera_fix/Sense-1.38.apk
+camera_fix/Sense-1.41.apk
 camera_fix/README_FIRST_zh.txt
 platform-tools/
 verify_package.ps1
