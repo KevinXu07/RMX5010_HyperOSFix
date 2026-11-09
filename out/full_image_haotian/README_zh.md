@@ -133,17 +133,19 @@ bootloader 阶段和 `-w`，数据本来就是清的）。
 ## 首次开机后
 
 1. 安装 `optional/SukiSU_v4.2.0_40900-release.apk`（Root 管理器），重启一次。
-2. 安装 `camera_fix/rmx5010_fod_bridge-1.7.0-camera-full.zip`（KSU/Magisk
-   模块，versionCode 37）。`camera_fix/` 里只有这一个模块 zip、Sense APK
+2. 安装 `camera_fix/rmx5010_fod_bridge-1.7.1-full.zip`（KSU/Magisk
+   模块，versionCode 38）。`camera_fix/` 里只有这一个模块 zip、Sense APK
    和说明，不要再拿旧分享包当模块安装——KSU 会报
    "specific file not found in archive"。
-3. 模块 1.7.0 自带安装器，安装时会自动部署：
+3. 模块 1.7.1 自带安装器，安装时会自动部署：
    - ZygiskNext 1.5.2（已安装则跳过）
    - LSPosed 2.2.1 (7912)（已安装则跳过）
    - Sense 1.38（已安装则跳过；本包内是 release 签名版）
-   安装完成后重启一次；如果本次新装了 LSPosed，重启后打开 LSPosed，
-   启用 Sense，作用域至少勾选 `com.android.settings`、`com.android.systemui`
-   （相机、钱包等原有作用域照旧），再重启一次。
+   - ColorOS 钱包 5 件套（FinShellWallet / TasWallet / HeytapHTMS /
+     UPTsmService / EidService，已安装则跳过）
+   安装器还会直接把 Sense 的 LSPosed 作用域（含钱包进程）写进 LSPosed
+   配置，不需要手动勾选。安装完成后重启一次；如果本次新装了 LSPosed
+   （当时数据库还没生成），首次开机后模块会自动补注册，再重启一次即可。
 4. Sense 也可以在装完 LSPosed 后手动安装 `camera_fix/Sense-1.38.apk`
    （本次新增：人脸录入修复 + 灵动岛 74px / 状态栏 padding 14px）。
    手机上已有 debug 签名的 Sense 时不能覆盖安装，需要先卸载
@@ -151,11 +153,11 @@ bootloader 阶段和 `-w`，数据本来就是清的）。
 5. 相机、星空、多景、相册桥接、触感、人脸录入、灵动岛修复才会完整生效。
    未启用 Sense 前，灵动岛为 donor 默认位置、人脸录入可能卡在进度环（预期）。
 
-### 模块自带安装器（1.7.0）
+### 模块自带安装器（1.7.1）
 
-模块 zip 内多了 `installer/`（ZygiskNext / LSPosed / Sense 三个包）和
-`install.sh`。KernelSU 在模块带 `install.sh` 时只解出 `module.prop` 和
-`install.sh`，所以脚本自己用 busybox `unzip` 展开整包，再做四件事：
+模块 zip 内多了 `installer/`（ZygiskNext / LSPosed / Sense / 钱包 5 件套）
+和 `install.sh`。KernelSU 在模块带 `install.sh` 时只解出 `module.prop` 和
+`install.sh`，所以脚本自己用 busybox `unzip` 展开整包，再做这些事：
 
 - 把 `system/system_ext` 提升到模块根目录并留符号链接（system-as-root 布局，
   与 1.6.9 的安装结果一致）；
@@ -163,7 +165,12 @@ bootloader 阶段和 `-w`，数据本来就是清的）。
   `service.sh` 存在，不满足就中止，避免装出一个半残模块；
 - 用 `/data/adb/ksud module install` 装 ZygiskNext（`zygisksu`）和
   LSPosed（`zygisk_lsposed`），目录已存在就跳过；
-- 用 `pm install` 装 Sense，已安装就跳过。
+- 用 `pm install` 装 Sense，已安装就跳过；
+- 用 `pm install` 装 ColorOS 钱包 5 件套（`installer/wallet/`，来自
+  COS-WALLET-FIX v0.11.0 的 release 包，已安装就跳过）；
+- 用 `installer/lspdscope.dex` 直接把 Sense 的 LSPosed 作用域（含钱包进程）
+  写进 LSPosed 数据库；装 LSPosed 与模块同批、数据库还没生成时，由
+  `service.sh` 在首次开机后补注册。
 
 失败时会把对应的包复制到 `/sdcard/Download/rmx5010_installer/`，
 安装日志在 `/data/local/tmp/rmx5010_installer.log`。
@@ -191,6 +198,10 @@ bootloader 阶段和 `-w`，数据本来就是清的）。
 - 模块 zip 内 `installer/` 打包了 LSPosed 2.2.1 (7912) 与 ZygiskNext 1.5.2
   的官方 release，二者均为 GPL-3.0，源码见各自仓库
   （<https://github.com/LSPosed/LSPosed>、<https://github.com/Dr-TSNG/ZygiskNext>）。
+- 模块 zip 内的 ColorOS 钱包 APK（`installer/wallet/`）来自
+  `Maga-King/COS-WALLET-FIX` v0.11.0 的 release 包
+  （`ColorOS_Wallet_SystemInject_Release1.0.1_A17_noLSP_noSE.zip`，
+  SHA-256 a8ecb7a9…33da56，字节未修改），版权归原权利人。
 - `images/` 中的原厂分区、`camera_fix` 模块内的 OplusCamera 与系统库来自
   对应原厂 / 移植源，版权归原权利人；本包仅用于同机型个人移植与修复交流，
   请勿用于商业分发。
@@ -203,7 +214,8 @@ metadata/PARTITIONS_54.txt
 metadata/sha256_images.txt
 optional/init_boot_sukisu.img
 optional/SukiSU_v4.2.0_40900-release.apk
-camera_fix/rmx5010_fod_bridge-1.7.0-camera-full.zip
+official_vbmeta/        原厂 vbmeta 三件套（先在 bootloader 刷入以进入 fastbootd，收尾时覆盖为 flags=3 版本）
+camera_fix/rmx5010_fod_bridge-1.7.1-full.zip
 camera_fix/Sense-1.38.apk
 camera_fix/README_FIRST_zh.txt
 platform-tools/

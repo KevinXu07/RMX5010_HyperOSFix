@@ -147,8 +147,8 @@ echo.
 echo.
 echo 首次开机进入系统后：
 echo 1) 安装 optional\SukiSU_v4.2.0_40900-release.apk；
-echo 2) 安装 1.5.7 相机模块和 Sense APK，重启生效；
-echo 相机模块与 Sense APK 见 camera_fix 目录的 RMX5010_HyperOSFix_1.5.7_share_20261031.zip。
+echo 2) 安装 camera_fix 目录下的 rmx5010_fod_bridge-1.7.1-full.zip，重启生效；
+echo 模块自带 ZygiskNext / LSPosed / Sense 与 ColorOS 钱包，安装时自动部署。
 pause >nul
 exit /b 0
 
