@@ -230,7 +230,11 @@ apply_ifaa_policy
   done
   db=/data/adb/lspd/config/modules_config.db
   dex="$MODDIR/installer/lspdscope.dex"
-  marker="$MODDIR/.sense_scopes_registered"
+  # v2 marker: the first release registered the wallet scopes but not
+  # com.oplus.camera, so the camera gallery hook never loaded.  A new marker
+  # makes existing installs run this registration once more on the next boot
+  # (LspdModule only inserts missing rows).
+  marker="$MODDIR/.sense_scopes_registered_v2"
   if [ -f "$marker" ] || [ ! -f "$db" ] || [ ! -f "$dex" ]; then
     log "sense scopes: skip"
     exit 0
@@ -246,7 +250,8 @@ apply_ifaa_policy
       android system com.android.systemui com.android.bluetooth com.android.settings \
       com.miui.securitymanager com.miui.securitycenter org.ifaa.aidl.manager \
       com.xiaomi.finddevice com.android.nfc com.android.se com.finshell.wallet \
-      com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.miui.tsmclient ) >> "$LOG" 2>&1
+      com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.miui.tsmclient \
+      com.oplus.camera ) >> "$LOG" 2>&1
   rc=$?
   rm -f /data/local/tmp/rmx5010_lspdscope.dex
   log "sense scopes: rc=$rc (takes effect after one more reboot)"

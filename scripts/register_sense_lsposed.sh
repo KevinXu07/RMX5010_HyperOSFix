@@ -13,7 +13,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ADB="${ADB:-adb}"
 SERIAL="${SERIAL:-}"
 DEX="$ROOT/tools/lspd/lspdscope.dex"
-SCOPES="android system com.android.systemui com.android.bluetooth com.android.settings com.miui.securitymanager com.miui.securitycenter org.ifaa.aidl.manager com.xiaomi.finddevice com.android.nfc com.android.se com.finshell.wallet com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.miui.tsmclient"
+SCOPES="android system com.android.systemui com.android.bluetooth com.android.settings com.miui.securitymanager com.miui.securitycenter org.ifaa.aidl.manager com.xiaomi.finddevice com.android.nfc com.android.se com.finshell.wallet com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.miui.tsmclient com.oplus.camera"
 
 ADB_CMD=("$ADB")
 [ -n "$SERIAL" ] && ADB_CMD+=(-s "$SERIAL")
