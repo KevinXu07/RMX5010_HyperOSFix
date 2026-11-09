@@ -226,15 +226,34 @@ camera_apply_policy() {
   # the camera is labelled with traceur_app (only com.android.traceur uses it)
   # and that existing type is switched to permissive.  Changing the state of a
   # stock type does still work through the runtime patcher.
+  # Opening an offline camera session (APS quick jpeg) goes through
+  # vendor.qti.hardware.camera.offlinecamera.IOfflineCameraService, which runs
+  # in vendor.qti.camera.provider-service_64 (hal_camera_default).  The service
+  # calls back into the app to read the callback binder's AIDL descriptor.
+  # Without an `allow hal_camera_default traceur_app:binder call` rule that
+  # check is denied (permissive=0 - the source domain is the HAL, not the
+  # permissive app), the descriptor reads back as empty, openOfflineSession()
+  # fails with ILLEGAL_ARGUMENT and configureOfflineStreams() then dereferences
+  # the null session: SIGSEGV in RefFrameProcess on every shutter press and on
+  # switching to the front camera.  SukiSU cannot add the allow rule, so make
+  # the stock HAL type permissive as well.
   ksud=/data/adb/ksu/bin/ksud
   [ -x "$ksud" ] || ksud=/data/adb/ksud
   [ -x "$ksud" ] || return 1
+  rc=0
   if "$ksud" sepolicy patch "permissive traceur_app;" >/dev/null 2>&1; then
     log "camera: traceur_app permissive"
-    return 0
+  else
+    log "camera: traceur_app permissive patch failed"
+    rc=1
   fi
-  log "camera: permissive patch failed"
-  return 1
+  if "$ksud" sepolicy patch "permissive hal_camera_default;" >/dev/null 2>&1; then
+    log "camera: hal_camera_default permissive"
+  else
+    log "camera: hal_camera_default permissive patch failed"
+    rc=1
+  fi
+  return $rc
 }
 
 camera_patch_seapp_contexts() {
