@@ -1343,16 +1343,19 @@ code 4，App 不再自杀；同时在 `ImageReader.acquireNextImage` 的 after-h
 3. **电影模式冷启动原生崩溃**（`lib2DSlender.so` `aiface::AiFaceOdnn::initModel+488`）：13.24 的 vndksupport 回退让美颜库
    真正加载了，但 AI 祛斑 dlopen 的是 `"/odm/lib64" + "/libODNN.so"`，app 命名空间打不开，返回的 NULL 句柄被直接解引用。
    用 `scripts/patch_lib2dslender.py` 打二进制补丁：两处 SSO 长度 `mov w8,#0x14 → #0`，后缀改成 `libODNN.so`，
-   于是变成按库名加载。模块把补丁后的 `lib2DSlender.so`（md5 `612f500f`）以及 ODM 的 `libODNN.so` / `libzlib.so`
+   于是变成按库名加载。模块把补丁后的 `lib2DSlender.so`（当前 md5 `4102e570`，见下）以及 ODM 的 `libODNN.so` / `libzlib.so`
    放进 priv-app lib 目录。实测 `CreateSession success`，之后不再崩溃。
    **1.7.3 追加**：同一个库的 `VideoBeautyEditionOne::process` → `adjustParam` 会无条件解引用
-   `op_param_data_t+0x78`（可选的 per-face 自定义参数数组，步长 0x94）。OplusCamera 6.070.45 的预览 JNI
+   `op_param_data_t+0x78`（可选的 per-face 自定义参数数组，每脸 5 个 int，步长 0x94）。OplusCamera 6.070.45 的预览 JNI
    （`libApsFaceBeautyPreviewJni.so` 的 `APSPreviewProcess::process` 等三个 processor）在栈上构造该结构时从不填
    +0x78，且 `adjustParam` 的循环次数被 `csel` 钳到至少 4 次，于是预览美颜一跑就空指针（`adjustParam+836`，
-   `ldr w15,[x15,x8]`，fault addr 0）。补丁把 `process` 参数校验块最后一条
-   `ldr x8,[x22,#0x28]`（文件偏移 0xE4020，`0xF94016C8`）改成 `ldr x8,[x22,#0x78]`（`0xF9403EC8`），
-   缺数组的调用方走原有的 invalid-param 早退（返回 -1），提供数组的调用方不受影响；能走到 `adjustParam` 的调用方
-   一定填了 +0x28，所以去掉那条检查不会放过空 +0x28。原库 md5 `ec189586`，补丁后 `612f500f`。
+   `ldr w15,[x15,x8]`，fault addr 0）。
+   最初的做法是让 `process` 的参数校验检查 +0x78、缺失时走 invalid-param 早退（md5 `612f500f`），但 JNI 在
+   `Slender2D_process` 返回非 0 时会丢掉这一帧，结果是**只要开美颜，所有模式预览都是黑的**。现在的补丁改为把
+   `adjustParam` 里 5 处 `ldr x15,[x21,#0x78]`（`0xF9403EAF`，文件偏移 0xDE06C/0xDE084/0xDE0A0/0xDE0BC/0xDE0DC）
+   改指向已被 `process` 校验非空的主参数数组 `ldr x15,[x21,#0x28]`（`0xF94016AF`）：两者都是 0..100 的美颜值，
+   读出后本来就逐项钳位，per-face 覆盖退回用户的全局美颜参数，不再崩溃也不丢帧。原库 md5 `ec189586`，
+   补丁后 `4102e570896a368e9585b1b3e69a9e5a`（`scripts/patch_lib2dslender.py` 可从原库复现）。
 4. **星空被映射成普通模式**：13.14 实验留下的 star→common hook 让星空请求拿不到 trigger（只发 8 帧、不出 JPEG）。
    Sense 1.38 的 `CameraProModeHooks` 只保留 professional_mode→common。
 5. **SELinux 反向拒绝**（enforcing 一侧的拒绝，app 域本身是 permissive）：补充
@@ -1379,3 +1382,37 @@ code 4，App 不再自杀；同时在 `ImageReader.acquireNextImage` 的 after-h
 **测试副作用（如实记录）**：11:20 有一次相机冷启动崩溃（即上面第 2 条），回到桌面后，测试脚本的坐标点击误开了“短信”。
 小米的 `com.xiaomi.simactivate.service` 随即自动发出两条 SIM 激活短信（`AC/…:MI&com.android.mms`，一条发往 +44 号码且未送达，
 一条发往 1069120907557841）。之后所有点击都加了焦点守卫，此后再没有发过短信。
+
+### 13.26 人像/APS 延迟任务前台不执行，照片要退后台才落盘（2026-11-09）
+
+**现象**：人像模式（前摄最明显）按下快门后缩略图有了，但成片迟迟不进相册，要等相机 `onPause/onStop`
+（切后台、进 `ScreenOffActivity`）才保存。
+
+**定位**：打开 APS 的 info 日志（`persist.sys.assert.panic=true` + `persist.camera.assert.panic=true` 才会让
+`APSCoreLog::initLogInfo` 走到 `overrideLogSettings`，否则 `persist.camera.aps.{core,interface}.infoMask` 不生效）后看到：
+
+- 拍照时 `APSDeferJobGoverner::startCapture/addFrame/processImage` 都正常，最后
+  `deferjob:0_0_<ts> save success! mJobs size 1`，任务存好了，但没有任何东西去执行它。
+- 退到后台时 Java 发 `executeDeferJob(cmd Start ... djLevel levle_df_default)` → `executeStart` →
+  `updateReadyJobLocked` → `allowNextJob()=1` → `doOneJob` → `APS_START_CAPTURE`，这时才出图。
+- 所以 native 没问题，缺的是**前台的 Start 命令**。这一路由 `ForeGroundStillController`（`kc.c`）负责：拍照时
+  `e(J)` 往 "StrategyExecutor" 线程发延时消息（`capture_defer.trigger.delay`，默认 2000 ms），消息里发 Start。
+  但 `kc.c.b/d/e` 开头都先查 `CameraConfig.getConfigBooleanValue("com.oplus.camera.feature.capture_defer.fg.still.open.support")`，
+  移植包的配置里没有这个 key（返回 false），整条路径直接 return。
+- 不只前摄：后摄非夜景人像同样卡住。之前看到"后摄 2 s 落盘"的那张是夜景连拍，走的是另一条路径。
+
+**修复**：Sense 1.41 新增 `CameraDeferHooks`，hook `CameraConfig.getConfigBooleanValue(String)`，只对这一个 key 返回 true
+（`CameraConfig` 自带 ConcurrentHashMap 缓存，hook 在 before 阶段直接给结果）。
+
+**验证**（2026-11-09 22:13–22:14，info 日志）：
+- 前摄人像：快门后 `foreGroundStillTrigger` → `cmd Start jobId=0_0_<ts> djLevel levle_rt` → 6 ms 后 `APS_START_CAPTURE`，
+  约 1 s `eraseJob()  mJobs size 0`，`IMG20261109221333.jpg`（4.7 MB）已在 `DCIM/Camera`。
+- 后摄人像、后摄照片：约 1.5 s 后 Start，3 s 内成片落盘（`IMG20261109221412.jpg`、`IMG20261109221424.jpg`）。
+- 期间相机进程无崩溃。测试用的 4 个调试属性已改回原值。
+
+**注意**：
+- 相机进程被 `am force-stop` 时还没执行的延迟任务，下次启动会被 `cmd Delete data` 删掉（本次 22:02 那张前摄测试照因此丢失）。
+  修复后任务拍完就执行，这个窗口只剩 1～3 s。
+- Sense 源码目录 `E:/code/modify/Sense` 里的 `gt7profodfix` 比本仓库 `lsposed-src` 多十几个相机 hook，
+  **不要跑 `scripts/sync_sense_hooks.sh`**（会整目录覆盖，把它们删掉）；本轮的 `CameraDeferHooks` 两边各放了一份。
+- 模块 `installer/` 里自带的仍是 Sense 1.38，全新安装的机器拿不到这个修复，需要单独装 1.41。

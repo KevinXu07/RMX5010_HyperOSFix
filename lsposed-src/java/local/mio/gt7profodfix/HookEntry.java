@@ -85,6 +85,11 @@ public final class HookEntry implements IXposedHookLoadPackage {
             } catch (Throwable error) {
                 HookLog.error("OplusCamera time-lapse hook installation failed", error);
             }
+            try {
+                CameraDeferHooks.install(param.classLoader);
+            } catch (Throwable error) {
+                HookLog.error("OplusCamera defer hook installation failed", error);
+            }
         }
     }
 }
