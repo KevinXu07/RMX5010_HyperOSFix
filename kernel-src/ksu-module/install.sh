@@ -107,28 +107,60 @@ install_module zygisksu "$MODDIR/installer/zygisknext-1.5.2.zip" "ZygiskNext"
 install_module zygisk_lsposed "$MODDIR/installer/LSPosed-v2.2.1-7912-release.zip" "LSPosed"
 
 # ------------------------------------------------------------- 3. Sense APK
+# 没装就装；已装但 versionCode 低于内置版本就用 pm install -r 原地升级（同一
+# release 签名，LSPosed 启用状态和作用域不变）。签名不同（例如 debug 签名版）
+# 系统不允许覆盖，跳过并提示，APK 留给用户手动处理。
 SENSE_APK="$MODDIR/installer/Sense-1.41.apk"
-if [ -n "$(pm path com.zephiel.sense 2>/dev/null)" ]; then
-  log "Sense 已安装，跳过。若要换成本包的 release 签名，请先卸载 com.zephiel.sense 再重新安装本模块。"
-else
-  if [ -f "$SENSE_APK" ]; then
-    cp -f "$SENSE_APK" /data/local/tmp/rmx5010_sense.apk
-    chmod 0644 /data/local/tmp/rmx5010_sense.apk
-    log "正在安装 Sense …"
-    pm install -r /data/local/tmp/rmx5010_sense.apk >> "$LOG" 2>&1
-    rc=$?
-    if [ "$rc" -eq 0 ] && [ -n "$(pm path com.zephiel.sense 2>/dev/null)" ]; then
-      log "Sense 安装成功"
-      INSTALLED_ANY=1
-    else
-      log "Sense 安装失败（rc=$rc），APK 已复制到 /sdcard/Download/rmx5010_installer/"
-      mkdir -p /sdcard/Download/rmx5010_installer
-      cp -f "$SENSE_APK" /sdcard/Download/rmx5010_installer/ 2>/dev/null
-    fi
-    rm -f /data/local/tmp/rmx5010_sense.apk
+SENSE_VERSION_CODE=34
+
+sense_installed_code() {
+  dumpsys package com.zephiel.sense 2>/dev/null |
+    "$BB" grep -m1 -o 'versionCode=[0-9]*' | "$BB" cut -d= -f2
+}
+
+sense_copy_for_user() {
+  mkdir -p /sdcard/Download/rmx5010_installer
+  cp -f "$SENSE_APK" /sdcard/Download/rmx5010_installer/ 2>/dev/null
+}
+
+# $1 = 日志里用的动作（安装 / 升级）
+sense_pm_install() {
+  cp -f "$SENSE_APK" /data/local/tmp/rmx5010_sense.apk
+  chmod 0644 /data/local/tmp/rmx5010_sense.apk
+  log "正在$1 Sense …"
+  out=$(pm install -r /data/local/tmp/rmx5010_sense.apk 2>&1)
+  rc=$?
+  echo "$out" >> "$LOG"
+  rm -f /data/local/tmp/rmx5010_sense.apk
+  if [ "$rc" -eq 0 ] && [ "$(sense_installed_code)" = "$SENSE_VERSION_CODE" ]; then
+    log "Sense $1成功"
+    INSTALLED_ANY=1
+  elif echo "$out" | "$BB" grep -q 'UPDATE_INCOMPATIBLE'; then
+    log "已装的 Sense 与本包签名不同，系统不允许覆盖，跳过$1。需要新版请先卸载 com.zephiel.sense 再重新安装本模块（之后要在 LSPosed 里重新启用、重勾作用域），APK 已复制到 /sdcard/Download/rmx5010_installer/"
+    sense_copy_for_user
   else
-    log "Sense 安装包缺失（$SENSE_APK），跳过"
+    log "Sense $1失败（rc=$rc），APK 已复制到 /sdcard/Download/rmx5010_installer/"
+    sense_copy_for_user
   fi
+}
+
+if [ ! -f "$SENSE_APK" ]; then
+  log "Sense 安装包缺失（$SENSE_APK），跳过"
+elif [ -z "$(pm path com.zephiel.sense 2>/dev/null)" ]; then
+  sense_pm_install 安装
+else
+  code=$(sense_installed_code)
+  case "$code" in
+    ''|*[!0-9]*)
+      log "Sense 已安装，但读不到版本号（$code），跳过" ;;
+    *)
+      if [ "$code" -lt "$SENSE_VERSION_CODE" ]; then
+        log "Sense 已安装（versionCode $code），低于本包的 $SENSE_VERSION_CODE"
+        sense_pm_install 升级
+      else
+        log "Sense 已安装（versionCode $code），不低于本包的 $SENSE_VERSION_CODE，跳过"
+      fi ;;
+  esac
 fi
 
 # ------------------------------------------------------------- 4. 钱包套件
