@@ -300,6 +300,15 @@ camera_overlay_system_libs() {
     "$rw/perm_upper" "$rw/perm_work" "$rw/odm_upper" "$rw/odm_work" || return 1
   nsenter -t 1 -m -- cp -a "$src/system_ext/lib64/." "$rw/ext_upper/" || return 1
   [ -d "$src/lib64" ] && nsenter -t 1 -m -- cp -a "$src/lib64/." "$rw/sys_upper/"
+  # The P010 libnativewindow.so lives in this overlay, not in a bind mount
+  # from $MODDIR.  zygote preloads it, and the per-app module umount (Zygisk
+  # Next just_umount / SukiSU UMOUNT) strips /data/adb bind mounts from app
+  # namespaces: the app then still maps the patched inode while stat() on the
+  # path returns the stock one, and hardened apps (Bangcle libDexHelper in
+  # Xunlei / BOC) SIGKILL themselves on that maps-vs-stat inode mismatch.
+  # The overlay is kept in app namespaces, so both views stay the same file.
+  [ -f "$CAM_DIR/libnativewindow.so" ] && nsenter -t 1 -m -- cp -a \
+    "$CAM_DIR/libnativewindow.so" "$rw/sys_upper/libnativewindow.so"
   [ -d "$src/system_ext/framework" ] && nsenter -t 1 -m -- cp -a \
     "$src/system_ext/framework/." "$rw/fw_upper/"
   [ -d "$src/system_ext/etc/permissions" ] && nsenter -t 1 -m -- cp -a \
@@ -359,9 +368,15 @@ ensure_camera_port() {
   # nosuid_transition permission (see camera_mount_bin).
   camera_mount_bin "$CAM_DIR/cameraserver" /system/bin/cameraserver
 
-  # RMX P010 vendor format branch for the Oplus camera HAL.
-  camera_mount_file "$CAM_DIR/libnativewindow.so" /system/lib64/libnativewindow.so \
-    u:object_r:system_lib_file:s0 libnativewindow-p010
+  # RMX P010 vendor format branch for the Oplus camera HAL.  Normally carried
+  # by the /system/lib64 overlay above; bind-mount only if that failed.
+  if nsenter -t 1 -m -- cmp -s "$CAM_DIR/libnativewindow.so" \
+       /system/lib64/libnativewindow.so 2>/dev/null; then
+    log "camera: libnativewindow-p010 via system lib overlay"
+  else
+    camera_mount_file "$CAM_DIR/libnativewindow.so" /system/lib64/libnativewindow.so \
+      u:object_r:system_lib_file:s0 libnativewindow-p010
+  fi
 
   # The Oplus README calls out swapping libAlgoInterface as a regression;
   # keep the RMX ODM algorithm pair untouched.
