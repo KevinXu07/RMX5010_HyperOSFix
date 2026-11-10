@@ -62,7 +62,7 @@ PackageManager 不会把它当作新包扫描：
 
 `camera_fix.sh` 在 post-fs-data 执行：
 
-1. bind mount `libnativewindow.so` 到 `/system/lib64/`；
+1. `libnativewindow.so` 放进 `/system/lib64` overlay 的 upper（tmpfs `sys_upper`），overlay 失败时才回退为 bind mount（来自 `/data/adb` 的 bind 会被按应用卸载模块从应用命名空间卸掉，导致梆梆加固应用因 maps/stat inode 不一致自杀，见 `迅雷_中国银行闪退_根因线索.md`）；
 2. resetprop `ro.oplus.camera.defercap.*=1`；
 3. bind mount 修改后的 `/odm/etc/camera/config/camera_unit_config`（必须在 camera provider
    启动前，provider 会缓存该文件）；
