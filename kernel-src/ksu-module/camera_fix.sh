@@ -391,6 +391,16 @@ ensure_camera_port() {
   fi
   log "camera: defercap props $(getprop ro.oplus.camera.defercap.support)/$(getprop ro.oplus.camera.defercap.all.quick.visible.support)"
 
+  # OplusCamera pins its own UI density (DensityUtil.initializeDefaultDisplay):
+  # with no persist.sys.display.density it falls back to the initial display
+  # density, 500 on HyperOS vs 560 on stock ColorOS, so the UI comes out ~12%
+  # smaller.  Only OplusCamera reads this prop; the system density is
+  # untouched.  Runtime-only (not -p), and an existing value wins.
+  if [ -x /data/adb/ksud ] && [ -z "$(getprop persist.sys.display.density)" ]; then
+    /data/adb/ksud resetprop persist.sys.display.density 560 2>/dev/null
+  fi
+  log "camera: ui density $(getprop persist.sys.display.density)"
+
   # The RMX sensor 3 (rear wide) does not expose RAW16 at 4096x3072 on the
   # Xiaomi HAL.  Drop the conflicting raw streams from the SAT photo use case
   # (the vendor camera provider caches this file at boot, so it must be in
