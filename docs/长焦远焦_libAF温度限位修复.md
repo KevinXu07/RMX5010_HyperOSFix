@@ -34,7 +34,16 @@ App 下发 `com.oplus.phone.temperature`（Sense 1.44 强发后无效）、`pers
   `camera_fix.sh` 单独把它的标签设回原厂 `vendor_file`（由 camera provider 加载，不是 app）。模块 1.7.7 (44)。
 - Sense 1.46：保留 `CameraThermalHooks`（`OplusHoraeThermalHelper.getCurrentThermal` 由桩值 -1 改为电池温度，恢复 App 原厂温度来源），与长焦限位无关。
 
+## 刷入 1.7.7 后复验（2026-11-11，整机重启后）
+- 系统状态：模块 1.7.7 (44)；`/odm/lib64/libAF.so` md5 `aeaa3fc8…`，标签 `vendor_file`，camera provider 加载的就是补丁版；Enforcing；5 个摄像头都在；Sense 1.46。
+- 实拍结果：
+
+| 场景 | 变焦 | libAF 逻辑位（afWarmStartCamera_3） | 画面 |
+|---|---|---|---|
+| ~5 m 门 | ~6×（144mm） | 562（修复前 459） | 清晰，纸面正文、TP-LINK 字样可读 |
+| 1 m 背包 | 3× | 70（修复前 99，同一近端区间） | 清晰，网眼布纹、徽标文字可读 |
+
 ## 残余风险 / 未验证
 - 去掉的是 far 端温度补偿：极端温度下远端可能略超无穷远，PDAF 收敛不受影响，但全程扫描会多走一点行程。
-- 补丁后 1 米近摄、暗光、视频、各变焦档的回归还没逐项做；本次只验证了 ~5 m 的 3×/10×。
+- 远端（~5 m）和 1 米近摄已经复验过；暗光、视频、0.6×/1×/2×、人像等模式还没逐项回归。
 - 更理想的修法是补上 libAF 温度模型的真实输入（来源尚未定位）；换底包或换 libAF 版本时必须按 md5 重新核对补丁点。
