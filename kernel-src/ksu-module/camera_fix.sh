@@ -321,6 +321,10 @@ camera_overlay_system_libs() {
       "$rw/ext_upper" "$rw/sys_upper" 2>/dev/null
     nsenter -t 1 -m -- chcon -R u:object_r:same_process_hal_file:s0 \
       "$rw/odm_upper" 2>/dev/null
+    # libAF.so (telephoto far-limit patch) is loaded by the camera provider,
+    # not the app: keep the stock /odm/lib64 label.
+    [ -f "$rw/odm_upper/libAF.so" ] && nsenter -t 1 -m -- chcon \
+      u:object_r:vendor_file:s0 "$rw/odm_upper/libAF.so" 2>/dev/null
     nsenter -t 1 -m -- chcon -R u:object_r:system_file:s0 \
       "$rw/fw_upper" "$rw/perm_upper" 2>/dev/null
   fi
@@ -386,6 +390,18 @@ ensure_camera_port() {
     /data/adb/ksud resetprop ro.oplus.camera.defercap.all.quick.visible.support 1 2>/dev/null
   fi
   log "camera: defercap props $(getprop ro.oplus.camera.defercap.support)/$(getprop ro.oplus.camera.defercap.all.quick.visible.support)"
+
+  # OplusCamera pins its own UI density (DensityUtil.initializeDefaultDisplay):
+  # with no persist.sys.display.density it falls back to the initial display
+  # density, 500 on HyperOS vs 560 on stock ColorOS, so the UI comes out ~12%
+  # smaller.  Only OplusCamera reads this prop; the system density is
+  # untouched.  An existing value wins.  -n skips property_service, which
+  # would otherwise write any persist.* prop to /data/property and keep it
+  # after the module is removed.
+  if [ -x /data/adb/ksud ] && [ -z "$(getprop persist.sys.display.density)" ]; then
+    /data/adb/ksud resetprop -n persist.sys.display.density 560 2>/dev/null
+  fi
+  log "camera: ui density $(getprop persist.sys.display.density)"
 
   # The RMX sensor 3 (rear wide) does not expose RAW16 at 4096x3072 on the
   # Xiaomi HAL.  Drop the conflicting raw streams from the SAT photo use case
