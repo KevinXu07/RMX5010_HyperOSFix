@@ -321,6 +321,10 @@ camera_overlay_system_libs() {
       "$rw/ext_upper" "$rw/sys_upper" 2>/dev/null
     nsenter -t 1 -m -- chcon -R u:object_r:same_process_hal_file:s0 \
       "$rw/odm_upper" 2>/dev/null
+    # libAF.so (telephoto far-limit patch) is loaded by the camera provider,
+    # not the app: keep the stock /odm/lib64 label.
+    [ -f "$rw/odm_upper/libAF.so" ] && nsenter -t 1 -m -- chcon \
+      u:object_r:vendor_file:s0 "$rw/odm_upper/libAF.so" 2>/dev/null
     nsenter -t 1 -m -- chcon -R u:object_r:system_file:s0 \
       "$rw/fw_upper" "$rw/perm_upper" 2>/dev/null
   fi
