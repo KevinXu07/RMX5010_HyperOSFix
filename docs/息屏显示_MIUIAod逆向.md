@@ -3,7 +3,7 @@
 反编译对象：`com.miui.aod`（MIUIAod.apk，OS4.0.0.19 提取）
 反编译环境：apktool 2.7.0（classes.dex → 10,600 smali）+ baksmali 2.5.2（classes2.dex → 11,023、classes3.dex → 574）
 对照对象：`E:/code/modify/os4/external/OP13HyperOSFix`（一加 13 澎湃 OS4 综合修复模块）与本仓库 `lsposed-src/`（gt7profodfix，RMX5010 现行模块）
-实机：RMX5010 / haotian / Android 17 / HyperOS OS4.0.0.19；本轮无 adb 连接，**所有"实机未验证"项在文中显式标注**
+实机：RMX5010 / haotian / Android 17 / HyperOS OS4.0.0.19；已接实机做过一轮**只读探测**（结果见 §16），仍无法只读确认的项在文中显式标注（§19）
 
 ---
 
@@ -149,7 +149,7 @@ onlySupportKeycodeGoto()  = FeatureParser("is_only_support_keycode_goto")
 ```
 
 RMX5010 的 `haotian.xml`：`is_default_temporary_style=true`、无 `is_only_support_keycode_goto` → `AOD_SHOW_STYLE_DEF = 0`。
-**推论：RMX5010 出厂默认是"轻触后显示 10 秒"，而不是定时/常亮。**（实机 settings 值未读取，标记未验证）
+**推论：RMX5010 出厂默认是"轻触后显示 10 秒"，而不是定时/常亮。**（§16 实测：`aod_show_style` 在 settings 里未设置，确认走默认 0，推论成立）
 
 ### 3.3 轻触模式的时长
 
@@ -553,44 +553,49 @@ RMX5010 `haotian.xml`：`support_aod=true`、`support_aod_fullscreen=true`、`su
 ### 14.1 结论
 
 1. **OP13 与 RMX5010 的差距只有第 6 项**：面板级全屏 AOD（`OplusAodPanelBridge` + `MiuiFullAodManager` hook）。其余四项在 RMX5010 模块里已经存在且更成熟。
-2. 第 6 项是否可移植，取决于两点（本机均未验证）：
-   - RMX5010 的 `vendor.oplus.hardware.displaypanelfeature.IFeature/default`（或 AIDL 版本）是否存在，feature 217 是否可读、能力位是否含 `1<<2`；
-   - SystemUI 内是否存在 `com.android.keyguard.fullaod.MiuiFullAodManager`（若为 HyperOS 通用类，则存在；若被 Oplus 定制，则名字/行为不同）。
+2. 第 6 项是否可移植，取决于两点：**两点均已在 §16 得到肯定回答**。
+   - ~~面板 feature 服务是否存在~~ → `vendor.oplus.hardware.displaypanelfeature.IDisplayPanelFeature/default` 存在且 `running`，HAL 导出 `SetDisplayLongruiAOD` 等一整套 AOD 接口，内核 OFP 读到的面板能力属性为 `0x6`；
+   - ~~SystemUI 内是否存在 `MiuiFullAodManager`~~ → 存在，`fullAodEnable` / `updateFullAodEnable` / `mAodFullScreenEnable` / `isFullAodSupport` 四个成员齐全。
+   - 仍在的唯一未知项：**feature ID 217 与 transaction 号在本机是否一致**，只能靠代码里的写调用确认（§19）。
 3. 需要注意的是：`support_aod_fullscreen=true` 只说明**应用层愿意画全屏**；没有面板模式时，全屏 AOD 仍然是"以普通 AOD 刷新率画一整屏"，功耗会明显高于 OP13。
 
 ---
 
 ## 15. 对 RMX5010 的建议（按性价比排序）
 
-1. **先验证 HAL/类是否存在，再决定是否移植**（只读，零风险）：
-   ```bash
-   adb shell service list | grep -i panelfeature
-   adb shell dumpsys -l | grep -i panel
-   adb shell "ls /system_ext/framework /system/framework | grep -i keyguard"
-   ```
-   若 panel feature 服务不存在，第 6 项直接放弃，不要写死 transaction。
-2. 若服务存在：先做**只读探测**（`getFeature(217)`），确认能力位再 `setFeature`，且必须 `linkToDeath` + 失败回退（直接抄 OP13 的 `OplusAodPanelBridge` 结构）。
-3. 若 `MiuiFullAodManager` 不存在：退化为 hook `com.android.systemui.keyguard`/`com.miui.keyguard` 侧的 `updateFullAodEnable`，或改为监听 `full_screen_aod_on` / `RequestDoze.onAodRequest` 的时机。
+1. ~~先验证 HAL/类是否存在~~ —— **已由 §16 只读探测确认：服务在跑、HAL 有 Longrui AOD、SystemUI 有 `MiuiFullAodManager`，前提全部成立。**
+2. **下一步只能在代码里做**：在模块中加一个默认关闭的只读探测入口，用 `OplusAodPanelBridge` 同款裸 Parcel 调 `getFeature(217)`，把返回的 int[] 写日志；确认能力位含 `1<<2` 之后，再打开 `setFeature` 的开关。`service call` 走不通（§19.1）。
+3. 移植时必须保留三件事：`linkToDeath`、写前存原值、能力位不含 `1<<2` 就不写。写入用 4 / 0 成对回滚，**回读一律走 `getFeature`，不要依赖 sysfs**（本机 sysfs 在 ksu 域下不可读，见 §16）。
 4. **不建议**改 `is_default_temporary_style`：那会把默认交互从"轻触 10 秒"改成"定时/常亮"，与 F4 单击进入 AOD 的整套设计冲突，且会显著增加功耗。
-5. 与 AOD 相关的既有风险点（本轮未改动）：
+5. **本机 AOD 开关当前是关的**（`doze_always_on` 未设置）。验证任何 AOD 行为前，先在设置里打开"息屏显示"，否则复现不出任何现象。
+6. 与 AOD 相关的既有风险点（本轮未改动）：
    - `gxzw_icon_aod_show_enable` 关闭后 AOD 内容会下移，若 RMX5010 的 FOD 图标位置读不到（`(-1,-1)`），内容不会横移，视觉上会偏 —— 与 §9.2 一致，不是缺陷。
    - 全屏 AOD 下 `MiuiFullAodAdapter` 跳过亮度设置，若面板模式未生效，可能出现"全屏 AOD 亮度不受控"。
 
 ---
 
-## 16. 未验证项（本轮无 adb 设备）
+## 16. 实机只读探测结果（2026-11-11，RMX5010 已连接）
 
-| 项 | 需要的验证 |
+原本的"未验证项"表格已替换为探测结论：
+
+| 项 | 结论 |
 |---|---|
-| RMX5010 上 `aod_show_style` 实际值 | `adb shell settings get secure aod_show_style` |
-| `is_only_support_keycode_goto` / `ro.vendor.touchfeature.type` 实机值 | `adb shell getprop ro.vendor.touchfeature.type`（bit4） |
-| `persist.vendor.sys.fp.fod.*` 是否仍为 540,2054 / 184,184 | `adb shell getprop \| grep fod` |
-| Oplus display panel feature 服务与 feature 217 | `adb shell service list`、只读 `getFeature(217)` |
-| `MiuiFullAodManager` 是否存在 | 反编译实机 SystemUI 或 `dumpsys` 类名检索 |
-| 全屏 AOD 实际是否进入面板模式 | 熄屏后 `dumpsys SurfaceFlinger`/面板节点 + 功耗对比 |
-| 智能 AOD（style 3）是否可用 | 确认 `com.xiaomi.aon` 是否预装、`AttentionService` 是否可绑定 |
-
----
+| RMX5010 上 `aod_show_style` | **未设置**（`settings list secure` 里没有该键）→ 走默认，按 §3.2 推导为 **0（轻触 10 秒）**，与预测一致 |
+| `doze_always_on` | **未设置** → `Utils.isAodSettingsEnabled()` 默认取 0 → **当前息屏显示是关闭的**（非折叠机，无其它覆盖分支） |
+| `aod_category_name` / `aod_style_state` / `aod_using_super_wallpaper` | `Linkage` / `1` / `0` |
+| 锁屏模板 | `constant_template_editor_info` 里是 `kg_all_in_one_magazine_style1`、`templateId=all_in_one`、`style=6`、`clockWeight=700` |
+| `ro.vendor.touchfeature.type` | **未设置** → `isSupportKeycodeByProperty()` 为 false；但 `aod_support_keycode_goto_dismiss=true`，`isKeycodeGotoEnable()` 仍为 **true** |
+| `persist.vendor.sys.fp.fod.location.X_Y` | `540,2054`（存在；shell 读不到，root 可读） |
+| `persist.vendor.sys.fp.fod.size.width_height` | `184,184` |
+| `ro.hardware.fp.fod` / `.c` | `true` / `true` |
+| Oplus 面板 feature 服务 | **存在且运行**：`vendor.oplus.hardware.displaypanelfeature.IDisplayPanelFeature/default`，`init.svc.displaypanelfeature-service=running`，二进制 `/odm/bin/hw/vendor.oplus.hardware.displaypanelfeature-service`（223,104 B） |
+| 面板 HAL 的 Longrui AOD | **有**：`SetDisplayLongruiAOD` / `GetDisplayLongruiAOD`、`SetDisplayUltraLowPowerAOD` / `GetDisplayUltraLowPowerAOD`、`SetDisplayFakeAOD` / `GetDisplayFakeAOD`、`SetDisplayPanelAodArea` |
+| 面板能力属性 | 内核 OFP 打印 `oplus_ofp_get_longrui_aod_config_attr:5271 longrui_aod_config(20064): 0x6`；`ultra_low_power_aod_mode(20068): 0`；`aod_light_mode(20069): 0` |
+| 对应 sysfs | `/sys/kernel/oplus_display/{longrui_aod, ultra_low_power_aod_mode, aod_light_mode_set}` 三个节点都存在（readdir 可见）。**注意：节点当前被 SELinux 保护** —— 以 `u:r:ksu:s0` 执行 `cat` 与 `ls -l` 都返回 `Permission denied`（`-?????????`，getattr 就被拒），所以"6 / 0 / 0"这类读值不可复现，后续验证不能依赖 sysfs |
+| 面板型号 | `panel_id = 08 05 00`，qdcm 配置为 `qdcm_calib_data_AB849_*`（BOE AB849） |
+| `MiuiFullAodManager`（SystemUI） | **存在**，且 `fullAodEnable`、`updateFullAodEnable`、`mAodFullScreenEnable`、`isFullAodSupport` 四个成员都在 —— OP13 hook 的目标一个不缺 |
+| `com.xiaomi.aon` | 已安装 → 智能 AOD 前提具备 |
+| **feature 217 是否被接受** | **仍未验证**。这是唯一剩下的未知项，且只能靠写调用确认（见 §19） |
 
 ## 17. 结论摘要
 
@@ -599,6 +604,8 @@ RMX5010 `haotian.xml`：`support_aod=true`、`support_aod_fullscreen=true`、`su
 - FOD 只影响**内容排布**（`AODUpdatePositionController`，指纹图标上方排布，读不到位置时退化整屏），不影响显示开关。
 - 全屏 AOD 是"应用愿意画 + 面板愿意刷"两件事，MIUIAod 只负责前者。
 - 一加 13 模块的 AOD 优化里，只有**面板级全屏 AOD（feature 217）** 是 RMX5010 尚未具备的；F4/AOD、双击防误触、抬起亮屏三项 RMX5010 已实现且实现更保守。
+- 实机只读探测（§16）确认：RMX5010 的面板 HAL **有** Longrui AOD 能力（内核 OFP 读到的面板能力属性 `0x6`），SystemUI 的 `MiuiFullAodManager` 也在，**移植的前提条件全部成立**；只剩"feature 217 这个 ID 与 transaction 号在本机是否一致"这一项无法靠只读方式确认。
+- 另外一个被忽略的事实：本机**息屏显示开关目前是关的**（`doze_always_on` 未设置，代码默认 0）。任何 AOD 侧现象的复现都要先打开它。
 
 ---
 
@@ -664,3 +671,60 @@ RMX5010 `haotian.xml`：`support_aod=true`、`support_aod_fullscreen=true`、`su
 ### 18.6 唤醒锁
 
 `util/wakelock/`：`WakeLock`、`DelayedWakeLock`、`SettableWakeLock`。`AODUpdatePositionController` 用 `WakeLock.wrapForAnimation(ctx, TAG, 800ms)`（0x320），`MiuiAodService` 在 354 按键时 `requestDrawWakelock(getTemporaryStyleDuration())`。
+
+---
+
+## 19. 只读探测的边界：为什么无法只读确认 feature 217
+
+### 19.1 服务注册形态
+
+```
+$ adb shell service list | grep displaypanel
+415  vendor.oplus.hardware.displaypanelfeature.IDisplayPanelFeature/default: []
+```
+
+方括号里是空的 —— 该服务注册时没有对外暴露 interface descriptor。
+
+实测更直接：**`service call` 根本找不到这个服务**。
+
+```
+$ adb shell service call vendor.oplus.hardware.displaypanelfeature.IDisplayPanelFeature/default 9999
+service: Service vendor.oplus.hardware.displaypanelfeature.IDisplayPanelFeature/default does not exist
+```
+
+（`adbd` 侧的 `service list` 能看到它，但 `service call` 的查找路径拿不到 —— 这类 HAL 服务注册在 vendor 的 servicemanager 上下文，且没有 Java 侧可见的 descriptor。）
+
+即便能查到，AIDL 的 token 校验也会先于方法分发：descriptor 为空 → `writeInterfaceToken("")` → HAL 侧 `checkInterface()` 判 `BAD_TYPE`，方法不会执行。**结论：`service call` 不是探测这个 HAL 的可用工具，无论读写。**
+
+### 19.2 正确的调用方式（OP13 已验证）
+
+`OplusAodPanelBridge` 不走 AIDL stub，而是自己 `new Parcel()` 并显式写 token：
+
+```java
+data.writeInterfaceToken("vendor.oplus.hardware.displaypanelfeature.IDisplayPanelFeature");
+data.writeInt(feature);      // getFeature
+data.writeInt(1);
+service.transact(FIRST_CALL_TRANSACTION, data, reply, 0);
+```
+
+`setFeature` 是 `writeInt(feature)` + `writeIntArray([value])`，transaction = `FIRST_CALL_TRANSACTION + 1`。
+
+### 19.3 剩余风险与验证方式
+
+| 风险 | 说明 | 怎么验（非只读） |
+|---|---|---|
+| transaction 号 | `FIRST_CALL_TRANSACTION` 假设 `getFeature` 是接口第一个方法；RMX5010 的 AIDL 版本可能不同 | 先只调 `getFeature`（读），看是否返回 int[] 且不抛 `TransactionTooLarge`/`BAD_TYPE` |
+| feature ID 217 | OP13 上 217 = `FEATURE_LONGRUI_AOD`；本机 HAL 有 `SetDisplayLongruiAOD`，但 ID 映射未证实 | `getFeature(217)` 返回的能力位里若含 `1<<2`，基本可确认 |
+| 值语义 | OP13 用 `4`（`1<<2`）表示全屏 AOD 模式 | 用 `getFeature` 回读确认值已生效。**不要指望 sysfs**：本机 `/sys/kernel/oplus_display/*` 在 `u:r:ksu:s0` 下 getattr/read 全部 `EACCES`（§16），`dmesg` 也读不到 |
+| 回滚 | 写错值可能让面板停在异常模式 | 任何写入都必须成对：写前先 `getFeature` 存原值，异常时立刻写回；并加 `linkToDeath` |
+
+### 19.4 结论
+
+只读探测已经把"能不能做"回答到 90%：**HAL 有 Longrui AOD、内核报告面板能力 `0x6`、SystemUI 有 `MiuiFullAodManager`**。剩下 10%（feature 217 的 ID 与 transaction 号）本质上无法只读确认——AIDL 的接口表不在任何可读配置里，只存在于 HAL 二进制内部。
+
+下一步要么：
+
+1. 在模块里加一个**默认关闭**的探测入口：`getFeature(217)` 只读调用 + 把结果写日志，不调用 `setFeature`；确认能力位后再打开写入开关；
+2. 或者接受 OP13 的常量直接移植，但必须保留"能力位不含 `1<<2` 就不写"的门禁和 `linkToDeath` 回滚。
+
+两种都需要动代码，已经超出"只读"的范围。
