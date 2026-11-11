@@ -395,9 +395,11 @@ ensure_camera_port() {
   # with no persist.sys.display.density it falls back to the initial display
   # density, 500 on HyperOS vs 560 on stock ColorOS, so the UI comes out ~12%
   # smaller.  Only OplusCamera reads this prop; the system density is
-  # untouched.  Runtime-only (not -p), and an existing value wins.
+  # untouched.  An existing value wins.  -n skips property_service, which
+  # would otherwise write any persist.* prop to /data/property and keep it
+  # after the module is removed.
   if [ -x /data/adb/ksud ] && [ -z "$(getprop persist.sys.display.density)" ]; then
-    /data/adb/ksud resetprop persist.sys.display.density 560 2>/dev/null
+    /data/adb/ksud resetprop -n persist.sys.display.density 560 2>/dev/null
   fi
   log "camera: ui density $(getprop persist.sys.display.density)"
 
