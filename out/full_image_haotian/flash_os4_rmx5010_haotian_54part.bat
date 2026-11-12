@@ -98,7 +98,10 @@ echo [1/5] 刷入官方 vbmeta（用于进入 fastbootd）...
 "%FASTBOOT%" flash recovery "%PKG%\recovery.img" || goto :err
 echo bootloader 阶段刷写完成。
 echo [清除数据] 正在执行 fastboot -w，将清除 userdata 和 cache...
-"%FASTBOOT%" -w
+rem userdata must be formatted with casefold+projid like an on-device format
+rem (vendor sets external_storage.casefold.enabled=1); plain -w leaves /data/media
+rem case-sensitive, which breaks MediaProvider (screen recordings fail to save).
+"%FASTBOOT%" --fs-options=casefold,projid -w
 if errorlevel 1 (
     echo [警告] fastboot -w 未成功，改用 erase userdata + erase metadata...
     "%FASTBOOT%" erase userdata || goto :err
