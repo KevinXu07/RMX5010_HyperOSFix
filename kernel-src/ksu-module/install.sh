@@ -110,8 +110,8 @@ install_module zygisk_lsposed "$MODDIR/installer/LSPosed-v2.2.1-7912-release.zip
 # 没装就装；已装但 versionCode 低于内置版本就用 pm install -r 原地升级（同一
 # release 签名，LSPosed 启用状态和作用域不变）。签名不同（例如 debug 签名版）
 # 系统不允许覆盖，跳过并提示，APK 留给用户手动处理。
-SENSE_APK="$MODDIR/installer/Sense-1.46.apk"
-SENSE_VERSION_CODE=39
+SENSE_APK="$MODDIR/installer/Sense-1.47.apk"
+SENSE_VERSION_CODE=40
 
 sense_installed_code() {
   dumpsys package com.zephiel.sense 2>/dev/null |

@@ -53,6 +53,17 @@ if [ -x /data/adb/ksud ]; then
 fi
 log "sf touch timer: $(getprop ro.surface_flinger.set_touch_timer_ms)"
 
+# ---- HyperOS screen color temperature UI ----
+# Xiaomi vendors set these; the ColorOS vendor does not, so Settings shows only
+# greyed warm/default/cool buttons (enabled in one mode only).  Enable the
+# colour picker in every mode except expert; Sense (ScreenColorBridgeHooks)
+# turns the resulting setFeature(mode 23/0/1/2) calls into colour matrices.
+if [ -x /data/adb/ksud ]; then
+  /data/adb/ksud resetprop ro.colorpick_adjust true 2>/dev/null
+  /data/adb/ksud resetprop ro.all_modes.colorpick_adjust true 2>/dev/null
+fi
+log "screen color picker: $(getprop ro.colorpick_adjust)/$(getprop ro.all_modes.colorpick_adjust)"
+
 # ---- OplusCamera systemless port ----
 # Hide MiuiCamera, mount OplusCamera/provider stub into priv-app, merge camera
 # permission XMLs, add the missing seapp_contexts mapping and P010 lib.
