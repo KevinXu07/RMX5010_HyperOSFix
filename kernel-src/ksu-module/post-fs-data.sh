@@ -64,6 +64,32 @@ if [ -x /data/adb/ksud ]; then
 fi
 log "screen color picker: $(getprop ro.colorpick_adjust)/$(getprop ro.all_modes.colorpick_adjust)"
 
+# ---- donor mi_ext paths ----
+# The donor's mi_ext partition was merged into /product at build time and
+# /mi_ext is left as an empty dir, but some readers hard-code /mi_ext with no
+# /product fallback:
+#   product/ai/taiyi             AIService preinstalled AI plugins/models
+#                                (segment -> lockscreen 景深, video_segment, ner)
+#   product/etc/cust_features    system_server CustFeatureResolveHelper and
+#                                libskuparser_ffi (device/region/SIM features)
+# Mirror only the subtrees the donor mi_ext really had; binding all of
+# /product would expose files (e.g. operator preinstall lists) that a stock
+# mi_ext does not carry.
+if [ -e /mi_ext/product ]; then
+  log "mi_ext: skipped (already populated)"
+elif nsenter -t 1 -m -- sh -c '
+    mount -t tmpfs -o mode=0755,context=u:object_r:system_file:s0 tmpfs /mi_ext || exit 1
+    for d in ai/taiyi etc/cust_features; do
+      [ -d /product/$d ] || continue
+      mkdir -p /mi_ext/product/$d && mount --bind /product/$d /mi_ext/product/$d || exit 1
+    done
+    mkdir -p /mi_ext/product/opcust
+    mount -o remount,ro /mi_ext' 2>>"$LOG"; then
+  log "mi_ext: $(ls /mi_ext/product/ai/taiyi/config 2>/dev/null | wc -l) taiyi configs, $(ls /mi_ext/product/etc/cust_features 2>/dev/null | wc -l) cust_features entries"
+else
+  log "mi_ext: mount failed"
+fi
+
 # ---- OplusCamera systemless port ----
 # Hide MiuiCamera, mount OplusCamera/provider stub into priv-app, merge camera
 # permission XMLs, add the missing seapp_contexts mapping and P010 lib.

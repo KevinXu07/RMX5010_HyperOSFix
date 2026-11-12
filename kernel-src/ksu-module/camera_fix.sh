@@ -403,6 +403,17 @@ ensure_camera_port() {
   fi
   log "camera: ui density $(getprop persist.sys.display.density)"
 
+  # The Meishe filter engine (/odm/lib64/libmsnativefilter.so) refuses to
+  # create its renderer unless the manufacturer is OPPO/OnePlus/realme/motorola;
+  # the port reports Xiaomi, so every LUT filter preview is black.  The bundled
+  # copy (camera/odm/lib64) reads ro.product.camera_maker instead of
+  # ro.product.manufacturer (same length, 8 bytes changed); give it the real
+  # hardware maker without touching the global identity.
+  if [ -x /data/adb/ksud ] && [ -z "$(getprop ro.product.camera_maker)" ]; then
+    /data/adb/ksud resetprop -n ro.product.camera_maker realme 2>/dev/null
+  fi
+  log "camera: filter maker $(getprop ro.product.camera_maker)"
+
   # The RMX sensor 3 (rear wide) does not expose RAW16 at 4096x3072 on the
   # Xiaomi HAL.  Drop the conflicting raw streams from the SAT photo use case
   # (the vendor camera provider caches this file at boot, so it must be in
