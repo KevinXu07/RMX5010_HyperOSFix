@@ -64,6 +64,26 @@ if [ -x /data/adb/ksud ]; then
 fi
 log "screen color picker: $(getprop ro.colorpick_adjust)/$(getprop ro.all_modes.colorpick_adjust)"
 
+# ---- Taiyi AI presets (lockscreen depth / subject segmentation) ----
+# AIService reads preinstalled plugins/models/configs only from
+# /mi_ext/product/ai/taiyi; this port ships them in /product/ai/taiyi and
+# /mi_ext is an empty dir, so segment/video_segment/ner were never registered
+# and the lockscreen editor's 景深 stays disabled.  Expose the product copy at
+# the expected path before AIService first runs.
+if [ -d /product/ai/taiyi ] && [ ! -e /mi_ext/product/ai/taiyi ]; then
+  if nsenter -t 1 -m -- sh -c '
+      mount -t tmpfs -o mode=0755,context=u:object_r:system_file:s0 tmpfs /mi_ext &&
+      mkdir -p /mi_ext/product/ai/taiyi &&
+      mount --bind /product/ai/taiyi /mi_ext/product/ai/taiyi &&
+      mount -o remount,ro /mi_ext' 2>>"$LOG"; then
+    log "taiyi presets: mounted at /mi_ext/product/ai/taiyi"
+  else
+    log "taiyi presets: mount failed"
+  fi
+else
+  log "taiyi presets: skipped"
+fi
+
 # ---- OplusCamera systemless port ----
 # Hide MiuiCamera, mount OplusCamera/provider stub into priv-app, merge camera
 # permission XMLs, add the missing seapp_contexts mapping and P010 lib.
