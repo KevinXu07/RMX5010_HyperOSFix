@@ -728,3 +728,58 @@ service.transact(FIRST_CALL_TRANSACTION, data, reply, 0);
 2. 或者接受 OP13 的常量直接移植，但必须保留"能力位不含 `1<<2` 就不写"的门禁和 `linkToDeath` 回滚。
 
 两种都需要动代码，已经超出"只读"的范围。
+
+---
+
+## 20. 接口确认与 SystemUI 只读探测（2026-11-12，Sense 1.52）
+
+§19 的剩余未知项已全部确认，**仍未做任何写入**。
+
+### 20.1 静态确认（反汇编本机 HAL）
+
+`/odm/lib64/vendor.oplus.hardware.displaypanelfeature-V1-ndk.so` 的客户端桩（`BpDisplayPanelFeature`）：
+
+| transaction | 方法 | 参数 |
+|---|---|---|
+| 1 | `getDisplayPanelFeatureValue(int id, out int[] value) → int` | `writeInt32(id)`、`writeInt32(数组长度)`；回包 status、int、int[] |
+| 2 | `setDisplayPanelFeatureValue(int id, in int[] value) → int` | `writeInt32(id)`、`writeInt32Array` |
+| 3 | `getDisplayPanelInfo(int id, out String[]) → int` | — |
+| 0xffffff / 0xfffffe | `getInterfaceVersion`（=1）/ `getInterfaceHash` | — |
+
+服务端 `/odm/bin/hw/vendor.oplus.hardware.displaypanelfeature-service` 的 get/set 两张 switch 跳转表
+（`id-1` 为下标，`ldrh` + `adr` 基址）里，**id 217 分别落到 `GetDisplayLongruiAOD` / `SetDisplayLongruiAOD`**，
+二者对 DRM fd 发 ioctl `0xc0046fbe`（读）/ `0x40046fbd`（写）。与 OP13 的常量完全一致。
+
+### 20.2 实机读取
+
+- root：`service call …IDisplayPanelFeature/default 1 i32 217 i32 1` → status 0、result 0、`[6]`。
+  （root 下 `service list` 能看到 descriptor，§19.1 的 "does not exist" 是 shell 域查不到服务所致。）
+- SystemUI（`system_app` 域）：Sense 1.52 的 `OplusAodPanelProbe` 读到同样的 `result=0 value=[6]`，无 avc 拒绝。
+  sepolicy 里 `hal_displaypanelfeature_client` 只含 `platform_app`，但 `system_app` 实测可 find + call。
+- `0x6` 含 `1<<2`（`FULL_SCREEN_AOD_MODE`），满足 OP13 的写入门禁。它与内核打印的 `longrui_aod_config 0x6`
+  一致，**更像能力配置而不是当前模式**——写入后能否靠 get 回读确认生效，待写入试验时验证。
+- `MiuiFullAodManager` 的 `updateFullAodEnable` 与 `$N.onDozingChanged` 均挂上；当前 `fullAodEnable()=false`
+  （息屏显示未开，`full_screen_aod_on=0`）。
+
+### 20.3 下一步
+
+1. ✅ 打开"息屏显示"与"全屏息屏"（`doze_always_on=1`、`full_screen_aod_on=1`）后锁屏：日志依次出现
+   `[update] wanted=true`、`[dozing] wanted=true dozing=true`，面板读值仍为 `0x6`——SystemUI 侧全屏 AOD
+   判定在移植包上正常工作，但没有任何人去写 217，面板不会进入 Longrui 全屏模式；
+2. ✅ 已加写入，见 §21。
+
+## 21. 面板全屏 AOD 写入（Sense 1.53）
+
+`OplusAodPanelBridge`（SystemUI 主进程）：挂 `MiuiFullAodManager` 构造、`updateFullAodEnable` 与
+`$N.onDozingChanged`，取 `fullAodEnable()`；能力位含 `1<<2` 时，在 binder 线程上仅于变化时写
+`set(217, 4)` / `set(217, 0)`。HAL 死亡（`linkToDeath`）或调用异常时清空缓存，下一次同步重写。
+`setprop persist.rmx5010.aod_panel 0` 为关闭开关（下次状态变化时写 0）。
+
+实机：
+- 内核 `oplus_ofp_set_longrui_aod_mode: longrui_aod_mode: 0x4`（同时打印 `another panel ... 0x4`）；
+- `get(217)` 写后仍为 `0x6`——**get 返回的是 `longrui_aod_config`（能力），不是当前模式**，
+  是否生效只能看内核日志，不能靠回读；
+- 设置里关/开"全屏息屏"：依次写 `0x0`、`0x4`，日志与内核一致；
+- 写入后进入息屏不再出现 `oplus_ofp_set_aod_state:1` / `send aod display on cmd`（Longrui 模式走另一路径），
+  用户目视全屏息屏显示正常。
+- 功耗收益未量化（需长时间息屏对比电流）。
