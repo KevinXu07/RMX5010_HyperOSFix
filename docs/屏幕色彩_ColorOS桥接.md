@@ -30,7 +30,26 @@ Sense `ScreenColorBridgeHooks`（system_server，Sense 1.47 起）：
 | 专业原色（3） | 2 | intent 301 + 色温 |
 | 色温（调色盘模式） | 23 | 色彩矩阵 level 126 |
 | 阅读/护眼 | 3 | 色彩矩阵 level 101（未实测） |
-| 高级模式 26、原彩 32 等 | — | 未桥接，只记日志 |
+| 高级模式 | 26 | 见下节（Sense 1.48 起） |
+| 原彩 32 等 | — | 未桥接，只记日志 |
+
+### 高级模式（mode 26）
+`setFeature(26, value, cookie)`，cookie 为参数编号（`ExpertData.Cookie`），完整参数存于
+`Settings.System expert_data`（JSON）。范围取自 haotian `device_features`：
+
+| cookie | 参数 | 范围/默认 | 实现 |
+|---|---|---|---|
+| 0 | 色域 | 0–3 / 0 | 切 intent：0→307，1→301，2→303，3→301（2、3 的界面名称未核对） |
+| 1–3 | R/G/B | 50–255 / 255 | 增益 v/255 |
+| 4 | 色相 | ±180 / 0 | 绕亮度轴旋转 |
+| 5 | 饱和度 | ±50 / 0 | 0.5–1.5 倍 |
+| 6 | 明度 | ±255 / 0 | 0.7–1.3 倍（`need_remove_expert_bright`，界面通常隐藏） |
+| 7 | 对比度 | ±100 / 0 | 以中灰为中心 0.5–1.5 倍 |
+| 8 | 伽马 | 170–270 / 220 | **不支持**（非线性，色彩矩阵做不了） |
+| 9 / 10 | 恢复默认 / 应用 expert_data | — | 重置参数 / 读取 JSON |
+
+R/G/B、色相、饱和度、明度、对比度合成一个仿射矩阵，放在 level 127；进入高级模式清掉色温矩阵，
+切回生动/鲜艳/专业原色时清掉高级模式矩阵。
 
 - intent 通过 `DisplayTransformManager.setDisplayColor(intent, -1)` 下发，会写
   `persist.sys.sf.native_mode`，SF 开机即沿用；同时 hook `DisplayTransformManager.setColorMode`，
@@ -42,5 +61,8 @@ Sense `ScreenColorBridgeHooks`（system_server，Sense 1.47 起）：
 ## 已验证（1.7.9 前的软重启测试）
 三种模式切换 HWC intent 分别为 303/307/301；调色盘在三种模式下可用，色温变化可见。
 
+高级模式（Sense 1.48，2026-11-12 实测）：色域 0/1 分别切到 307/301，饱和度/明度/对比度拖动后矩阵随之更新，
+退出高级模式后恢复专业原色 301。
+
 ## 未做
-高级模式（色域/饱和度/对比度/gamma 等 mode 26 参数）、智能色温调节（需环境色温传感器）、P3 组 intent。
+伽马、智能色温调节（需环境色温传感器）、P3 组 intent；色域选项 2/3 未实测。
