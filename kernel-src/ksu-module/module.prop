@@ -1,6 +1,6 @@
 id=rmx5010_fod_bridge
 name=RMX5010 HyperOS Fix
-version=1.7.17
-versionCode=54
+version=1.7.18
+versionCode=55
 author=KevinXu07
 description=RMX5010 HyperOS 移植修复统一 Root 模块：FOD 触摸桥、触控/音频/钱包/性能修复，以及 OplusCamera 6.070.45 系统级移植（全模式拍照/录像、实况照片、相册跳转）。自带安装器，自动部署 ZygiskNext、LSPosed 与 Sense。

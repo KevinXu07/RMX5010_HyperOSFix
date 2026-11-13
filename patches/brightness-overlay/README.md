@@ -117,3 +117,36 @@ SHA-256 前缀 c664aa1f—74px 版本)——可直接放入 product/overlay/ 替
 从任意 haotian 底的 DevicesOverlay.apk 重新生成(常数 0x4A00=74px 可调)。
 配套脚本:build_h19_autobrightness.sh(自动亮度)、build_h19_refresh.sh(刷新率)、
 build_h19_vendor_nfc.sh(NFC vendor 闭包)。
+
+## 2026-11-13 修正:亮度→尼特表按面板实测重建(自动亮度偏暗)
+
+**现象**:自动亮度比 ColorOS 原厂暗,日常照度下约为原厂一半。
+
+**根因**:上面"本文件 ≡ 原厂主曲线"的结论只对了一半——vendor displayconfig 是原厂
+AOSP 路径的文件,ColorOS 自己并不用它算亮度:
+- ColorOS 用 `display_brightness_config_common.xml` 的 lux_table 44(lux→尼特)+
+  `display_brightness_config_P_1.xml`(level 0~10239→尼特),HWC 里的 Apollo
+  (`libsdmcore` `ApolloService`,读 `/my_product/vendor/etc/display_apollo_list_AB849_P_1_A0022_dsc_cmd_mode_panel.xml`)
+  再把 level 换成 DBV。Apollo 表每行 = level、DBV、实测尼特,即本面板的真实 DBV→尼特。
+- HyperOS 没有 `/my_product`,Apollo 不工作,HWC 直接 DBV = 亮度×4093+1(实测 0.0963→395)。
+- vendor displayconfig 的 `screenBrightnessMap` 与这块屏不符:0.098 标 27.5 尼特,实际 DBV 401
+  只有 11.6 尼特;1.0 标 782,实际 2160。
+- HyperOS 真正算自动亮度的是 refactor 策略(`RefactorAutoBrightnessAnimator`):lux→逻辑尼特
+  (锚点 0/3.5、30/135、600/220、5000/1060)→实际尼特→**用 screenBrightnessMap 反查亮度值**。
+  日志:17.47 lux → 逻辑 79.8 → 实际 49.47 尼特 → 0.1373;按面板实测 0.1373 只有 22 尼特。
+  小米这条尼特目标本身与原厂 lux_table 44 很接近,错的只是尼特→亮度这张表。
+  (displayconfig 里的 luxToBrightnessMapping 在 refactor 策略下不直接决定亮度。)
+
+**修法**:`scripts/gen_brightness_map.py` 用 Apollo 表重建两处:
+- `screenBrightnessMap`:139 点,value=(DBV−1)/4093 → 实测尼特(0→0.2289,1.0→2134.5);
+- `luxToBrightnessMapping`:每个 lux 点取实际尼特等于 lux_table 44 目标的亮度值。
+HBM transitionPoint 0.85 不动(手动最大物理亮度不变,约 1140 尼特)。
+底稿用设备上的版本(已按刷新率补丁删掉 idleScreenRefreshRateTimeout)。
+
+**载体**:KSU 模块 `overlay/display_id_4630947008615494291.xml`,post-fs-data
+`overlay_mount` 绑到 `/product/etc/displayconfig/`(早于 system_server)。镜像里的旧文件不动。
+
+**验证(2026-11-13)**:重启后 `dumpsys display` mNits 为新表;18.7 lux → 0.2085 → DBV 854 →
+52.5 尼特(原厂目标 53;修正前同照度 0.146 → 24.5 尼特)。
+息屏(AOD)同样走尼特表:~17 lux 时 0.0573/DBV 236/4.9 尼特 → 0.0994/DBV 408/12 尼特
+(HyperOS 目标约 11 尼特),用户目视确认正常。高照度待实际使用确认。

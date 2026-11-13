@@ -36,6 +36,11 @@ overlay_mount() {
 }
 overlay_mount DevicesAndroidOverlay.apk /product/overlay/DevicesAndroidOverlay.apk
 overlay_mount DevicesOverlay.apk /product/overlay/DevicesOverlay.apk
+# Auto-brightness curve: lux points re-mapped through the panel's Apollo
+# DBV->nits table (stock AB849 P_1) so the screen hits ColorOS lux_table 44
+# nits; the image copy maps through a wrong nits table (~50% of stock).
+overlay_mount display_id_4630947008615494291.xml \
+  /product/etc/displayconfig/display_id_4630947008615494291.xml
 
 # ---- touch report-rate config ----
 . "$MODDIR/touch_config.sh"
