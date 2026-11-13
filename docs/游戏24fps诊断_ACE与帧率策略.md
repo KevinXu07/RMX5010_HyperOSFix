@@ -226,3 +226,75 @@ cmd game list-modes -> custom
 说明：若采样期间焦点短暂切到通知栏/桌面，峰值会按新前台会话重置，此时静置 24 会回落到
 60 而不是 120；这是有意的，避免把一次瞬时 120 请求永久固化成 120Hz 待机。用户若要某游戏
 固定 120，可在 `/data/adb/rmx5010_game_fps.conf` 写 `包名:120`。
+
+## 2026-11-13 追加：群友反馈"部分游戏十几 Hz"——24Hz 不是游戏申请的，1.4.1 的抬帧一直失败
+
+### 现象（Blue Archive 主界面，游戏内只有 30/60 两档）
+
+```text
+mode=standard
+(uid, gameModeOverride, gameDefaultOverride)={10312, 0 120}
+setFrameRate=
+    (uid, frameRate)={10312, 24.00 Hz}
+renderRate=24.00 Hz   activeMode vsyncRate=120.00 Hz
+timestats: SurfaceView[com.nexon.bluearchive/...](BLAST)  averageFPS = 23.810
+```
+
+触摸后由 SF 触摸升帧拉回 120Hz（游戏实测 62.5fps），触摸定时器到期（`touchTimer=3000.000 ms`）后又掉回 24。
+
+### 24Hz 来自系统，不是游戏
+
+- 24Hz 时游戏的所有图层都没有 `requestedFrameRate`，HWC 图层表 `Frame Rate (Explicit)` 一栏为空，即游戏没有调用 `setFrameRate`。
+- system_server 记录的是**整屏**渲染档降到 24，并且不是按 uid 覆盖：
+  ```text
+  20:06:16.452 DisplayDeviceRepository: Display device changed render timings: "内置屏幕",
+    renderFrameRate=24.000002, ... frameRateOverrides=[]
+  ```
+- AOSP SurfaceFlinger 在 `ContentDetection=false`（`ro.surface_flinger.use_content_detection_for_refresh_rate=false`）下不会按内容降帧。
+  小米改过的 `/system_ext/lib64/libmisurfaceflinger.so` 里有按内容平均帧率 / 视频帧率调档的逻辑，相关字符串：
+  `isPrimary=%d, avgFrameRate=%d, mInSmallDamageInfo=%d ... touchHint=%d`、`setVideoFps ...`、
+  `updateVideoDecoderInfo mVideoFrameRateSnapshot`。Blue Archive 主界面同时在用 `c2.qti.vp9.decoder` 播放背景视频。
+  所以结论是 MiSF 的动态帧率策略把游戏当成了低帧内容。具体是视频分支还是平均帧率分支触发的，还没有反汇编确认。
+- 降到 24 后，游戏的 Choreographer 每秒只收到 24 个 vsync，出帧不可能超过 24，形成自锁，只有触摸能暂时解开。
+
+### 十几 Hz 的来源（推断，这台机上没有直接复现）
+
+SF 只会使用档位表 `20/24/30/40/60/120` 里的渲染档，最低 20Hz。实测用 GameManager 设 15/12 时，SF 不接受，改给 60/120；
+设 20 时游戏实测 `averageFPS = 20.000`。所以不会存在 10–15Hz 的显示档位。十几帧应该是较重的游戏被锁在 24Hz/20Hz
+的 vsync 上，赶不上某个 vsync 就只能隔一个出一帧（24→12、20→10）。
+
+### 1.4.1 为什么没把它抬起来
+
+```text
+19:47:22 apply com.nexon.bluearchive fps=120.00 (requested 24.00Hz, peak 120.00Hz): Invalid frame rate: '120.00'
+```
+
+1. SF 打印的帧率是 `120.00`，脚本原样传给 `cmd game set --fps`；GameManager 只接受整数，`120` 可以，`120.00` 会被拒绝。
+   只要游戏本会话出现过 120（触摸升帧时**任何**游戏都会显示 120），掉到 24 后的抬帧就一直失败。
+2. 即使改成整数 120 也没有用：GameManager 设成 120（等于面板刷新率）时 SF 视为"不限制"，实测仍是 `renderRate=24`。
+   GameManager 设 60（或 90，SF 取 60）才有效：`gameModeOverride=60` → `renderRate=60`，实测 62.5fps。
+3. SF backdoor（`service call SurfaceFlinger 1039 i32 <uid> f 120`）可以强制到 120Hz，实测 Blue Archive 58fps；
+   `f 0` 只清除该 uid 的覆盖。
+
+### 修复（game_fps.sh，KSU 1.7.20）
+
+- 删除"本会话峰值"逻辑，因为触摸升帧让它失去意义；自动下限固定为 `default`（60），走 GameManager custom。
+- 写入前取整（最高 120），GameManager 不会再因为带小数而拒绝。
+- conf 里 `包名:90`/`包名:120` 这类大于 60 的下限改走 SF backdoor（uid 覆盖），游戏离开前台时用 `f 0` 清掉。
+- 代价：自动下限为 custom 60 的游戏会全程封顶 60；真正支持 120 的游戏需要在 conf 里写 `包名:120`。
+
+实机验证（重置为 standard 后回到主界面）：
+
+```text
+20:13:36 renderRate=24.00Hz  gameModeOverride=0   averageFPS = 23.815
+20:13:39 apply com.nexon.bluearchive fps=60 (was 24.00Hz): ... fps-override: 60
+20:13:40 renderRate=60.00Hz  gameModeOverride=60  averageFPS = 61.830
+20:13:44 ~ 20:14:31 averageFPS = 62.4 ~ 62.6（静置 + 触摸都不再低于 60）
+```
+
+conf 写 120 的 backdoor 分支：这次测试中游戏没有再掉到 24，没有走到这条分支；只验证过手动 `1039 ... f 120` 有效。
+
+### 顺带发现（未处理）
+
+Blue Archive 日志每秒刷几千行 `MediaCodec: Invalid to call at Released state` / `Unity AndroidVideoMedia::GetNextVideoFrameRaw bad buffer index: -10000`。
+背景视频的 VP9 解码器已经被释放，Unity 仍在轮询，`logd` 因此被拖到 40%+ CPU。原因待查，可能和 MiSF 认为视频一直在播放有关。

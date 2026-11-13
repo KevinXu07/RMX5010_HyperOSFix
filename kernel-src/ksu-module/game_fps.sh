@@ -1,20 +1,26 @@
 #!/system/bin/sh
 # Adaptive game frame-rate policy.
 #
-# Android/GameManager only exposes per-package overrides; there is no global
-# minimum-fps switch.  A game may request 120Hz during loading and then fall
-# back to 24Hz when it goes idle.  The policy below keeps sampling while the
-# game remains in the foreground, so that idle transition is caught too.
+# Why this exists (see docs/游戏24fps诊断_ACE与帧率策略.md):
+#   On this port HyperOS' SurfaceFlinger drops the whole display render rate to
+#   24Hz while some games sit in a menu/lobby, although the game layer carries
+#   no explicit frame-rate request (renderFrameRate=24, frameRateOverrides=[]).
+#   The game's Choreographer then only gets 24 vsyncs/s and renders 23.8fps;
+#   a heavier game that misses those slots falls to the teens.  Touch boosts
+#   it back to 120Hz for the touch timer, then it falls again.
 #
 # Policy:
 #   * watch the foreground package and ask GameManager whether it is a game;
 #   * if its current mode is already custom, leave the user's/game's choice;
-#   * otherwise sample SurfaceFlinger's requested rate for its UID;
-#       - >= 30Hz (30/60/90/120): observe and keep the game's own request;
-#       - <30Hz or no request for 5s: apply a floor.  The floor is the
-#         configured fallback (60 by default), raised to the highest rate the
-#         game requested this foreground session (capped at 120), so a
-#         120Hz-capable game is not silently capped to 60.
+#   * otherwise sample SurfaceFlinger's per-UID rate for the game:
+#       - >= 30Hz: observe only (touch boost also shows up as 120 here, so it
+#         says nothing about what the game itself supports);
+#       - <30Hz or no rate for 5s: apply the floor (60 by default) through
+#         GameManager custom mode, which SurfaceFlinger honours over the 24Hz.
+#   * floors above 60 cannot go through GameManager: SF treats an override
+#     equal to the panel rate as "no override" and stays at 24.  For a
+#     configured floor >60 the SF backdoor (transaction 1039, uid override)
+#     is used instead and cleared when the game leaves the foreground.
 #   * newly installed games are handled when first foreground; no package list.
 #
 # Optional overrides in /data/adb/rmx5010_game_fps.conf:
@@ -81,7 +87,20 @@ last_pkg=
 state=
 started=0
 uid=
-peak_rate=0
+boost_uid=
+
+# SF backdoor: per-UID frame-rate override; rate 0 removes it.
+sf_backdoor() {
+  service call SurfaceFlinger 1039 i32 "$1" f "$2" 2>&1
+}
+
+clear_boost() {
+  if [ -n "$boost_uid" ]; then
+    sf_backdoor "$boost_uid" 0 >/dev/null
+    log "clear SF override for uid $boost_uid"
+    boost_uid=
+  fi
+}
 
 while true; do
   pkg=$(dumpsys window 2>/dev/null \
@@ -89,11 +108,11 @@ while true; do
     | head -n 1)
 
   if [ "$pkg" != "$last_pkg" ]; then
+    clear_boost
     last_pkg=$pkg
     state=pending
     started=$(date +%s)
     uid=
-    peak_rate=0
   fi
 
   if [ -z "$pkg" ]; then
@@ -131,30 +150,29 @@ while true; do
     continue
   fi
 
+  if [ "$state" = boosted ]; then
+    sleep 5
+    continue
+  fi
+
   if [ "$state" = managed ]; then
     # The pipe was cleared (boot, user reset, or system policy change).
     state=pending
     started=$(date +%s)
     uid=
-    peak_rate=0
   fi
 
   if [ -z "$uid" ]; then
     uid=$(uid_for "$pkg")
   fi
   rate=$(requested_rate_for "$uid")
-  if [ -n "$rate" ]; then
-    peak_rate=$(awk -v a="$peak_rate" -v b="$rate" \
-      'BEGIN { print (b > a) ? b : a }')
-  fi
 
-  # A live >=30Hz request is the game's own valid choice (30/60/90/120).
-  # Keep observing instead of marking the package "done": the same game can
-  # drop to 24Hz later in the same foreground session.
+  # >=30Hz: leave it.  Keep observing instead of marking the package "done":
+  # the same game drops to 24Hz again once the touch boost expires.
   if [ -n "$rate" ] \
      && awk -v r="$rate" 'BEGIN { exit !(r >= 30) }'; then
     if [ "$state" != native ]; then
-      log "observe $pkg: requested ${rate}Hz (peak ${peak_rate}Hz)"
+      log "observe $pkg: ${rate}Hz"
       state=native
     fi
     sleep 2
@@ -168,17 +186,27 @@ while true; do
   fi
 
   fps=$(fps_for "$pkg")
-  # Preserve a proven high-refresh game, but never let an idle 24Hz request
-  # win over the floor.
-  if awk -v p="$peak_rate" -v f="$fps" 'BEGIN { exit !(p > f) }'; then
-    fps=$peak_rate
-  fi
-  if awk -v f="$fps" 'BEGIN { exit !(f > 120) }'; then
-    fps=120
+  # SurfaceFlinger prints rates as "120.00"; GameManager only accepts an
+  # integer and rejects "120.00" with "Invalid frame rate".
+  fps=$(awk -v f="$fps" 'BEGIN { f += 0.5; if (f > 120) f = 120; printf "%d", f }')
+
+  if [ "$fps" -gt 60 ]; then
+    out=$(sf_backdoor "$uid" "$fps")
+    case "$out" in
+      *"Parcel(00000000"*)
+        boost_uid=$uid
+        log "apply $pkg fps=$fps via SF override uid $uid (was ${rate:-none}Hz)"
+        state=boosted
+        sleep 5
+        continue
+        ;;
+    esac
+    log "SF override for $pkg failed: $out; fall back to $DEFAULT_FPS"
+    fps=$DEFAULT_FPS
   fi
 
   out=$(cmd game set --fps "$fps" "$pkg" 2>&1)
-  log "apply $pkg fps=$fps (requested ${rate:-none}Hz, peak ${peak_rate}Hz): $out"
+  log "apply $pkg fps=$fps (was ${rate:-none}Hz): $out"
   state=managed
   sleep 5
 done
