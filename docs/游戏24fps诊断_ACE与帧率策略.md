@@ -298,3 +298,47 @@ conf 写 120 的 backdoor 分支：这次测试中游戏没有再掉到 24，没
 
 Blue Archive 日志每秒刷几千行 `MediaCodec: Invalid to call at Released state` / `Unity AndroidVideoMedia::GetNextVideoFrameRaw bad buffer index: -10000`。
 背景视频的 VP9 解码器已经被释放，Unity 仍在轮询，`logd` 因此被拖到 40%+ CPU。原因待查，可能和 MiSF 认为视频一直在播放有关。
+
+## 2026-11-13 晚：120 帧游戏被 1.7.20 压到 60 → 按实测帧数自动选档
+
+群友反馈：游戏本身是 120 帧，装 1.7.20 后被压到 60。原因是 1.7.20 在锁 24 时写入 GameManager custom 60，
+这个设置会持久保存，而且对该 uid 是上限，此后游戏每一局都封顶 60。
+
+### 各种抬帧手段实测（Blue Archive，先确认已锁在 24Hz）
+
+| 手段 | 结果 |
+|---|---|
+| GameManager `--fps 60` / `61` | renderRate 60，62.5fps ✅ |
+| GameManager `--fps 90` | SF 取 60 |
+| GameManager `--fps 100` | renderRate 120，uid 120（游戏不被限到 100），62.5fps ✅ |
+| GameManager `--fps 119` / `120` | 被忽略，仍是 24Hz / 23.8fps（与 `ro.surface_flinger.game_default_frame_rate_override=120` 相同或几乎相同） |
+| SF backdoor `1039 i32 uid f 60/120` | 只能**限制**该 uid 的帧率，整屏被锁 24 时设 60 仍是 24；成功时返回 `Result: Parcel(NULL)` |
+| Joyose 广播 `com.xiaomi.joyose.OVERRIDE_GAME_FRESHRATE` | 无效果 |
+| `display` 私有事务 `0xfffff8`（`appRequestChangeSceneRefreshRate`，接口名 `android.view.android.hardware.display.IDisplayManager`，参数为包名 + fps，uid<10000 可调） | `mRefreshRatePackages` 能写入，但要等窗口有变化才生效，13 秒内仍是 24，不可靠 |
+
+结论：能把帧率**抬上去**的只有 GameManager 的覆盖值（它作为游戏图层的投票）。最高档要投"最高档 − (最高档 − 次高档)/3"
+（60/120 机型上是 100），SF 会取到最高档，且不会把游戏限在这个值。
+
+### 新策略（game_fps.sh）
+
+- 渲染档位从 SF 的 `mAppRequestFrameRates` 读取，不写死 60/90/120。
+- 游戏没被锁且渲染档在最高档时，用 `dumpsys SurfaceFlinger --latency <图层>` 按游戏图层的实际呈现时间算帧率，
+  每 10 秒最多测一次，最高值记到 `/data/adb/rmx5010_game_fps.learned`。
+- 锁到 <30Hz 持续 5 秒后，选"≥ 实测帧数 × 0.9 的最小档"，下限 60：实测 62 → 60，88/90 → 120（本机没有 90 档），118 → 120。
+  没测过的游戏先按最高档试测 2 秒。
+- 被限在较低档、并且游戏一直顶满这一档时，会放开到最高档试测：先每 30 秒一次，没升档就翻倍间隔，最长 5 分钟。
+  这样在菜单里学到 60 的 120 帧游戏，进入实战后能升到 120。试测不写入 managed，进程中途被杀也不会留下临时档位。
+- 脚本设置过的游戏记在 `/data/adb/rmx5010_game_fps.managed`，跨重启继续管理；其他 custom 模式视为用户设置，不动。
+  1.4.1~1.7.20 留下的 `Fps:60` custom 会对每个包自动重置一次（记录在 `.migrated`）。
+- conf：`包名:120` 表示固定档位（按选档规则取档），`包名:off` 表示不管这个游戏，`default:N` 修改下限。
+
+实机（Blue Archive，游戏内上限 60）：
+
+```text
+21:23:54 learn com.nexon.bluearchive: 60fps at 120.00Hz (was none)
+21:24:01 apply com.nexon.bluearchive 60Hz (learned 60fps; was 24.00Hz)
+21:24:29~21:25:15 averageFPS 62.4~62.6；每 30 秒放开到 100 试测一次，仍约 62fps，保持 60 档
+11-13 21:11:11 reset legacy GameManager custom 60 for com.nexon.bluearchive
+```
+
+未验证：手头没有 120 帧游戏，"试测后升到 120"这条路径没有完整跑过；只单独验证了 GameManager 100 能把锁 24 的游戏抬到 120 档。
