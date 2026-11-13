@@ -18,6 +18,10 @@ WALLET_SESSION_EXTRA=local.mio.coloroswalletcompat.extra.LOCKSCREEN_SESSION
 LSP_MAIN=local.mio.gt7profodfix
 LSP_WALLET=local.mio.coloroswalletcompat
 IFAA_PACKAGE=org.ifaa.aidl.manager
+GMS_UNFREEZE_KEY=op13_fix_gms_unfreeze
+GREEZE_ALLOW_KEY=op13_fix_greeze_allow
+GREEZE_ALLOW_DEFAULT="com.tencent.mm com.tencent.mobileqq"
+GREEZE_CLOUD_KEY=immobulus_mode_switch_restrict
 
 log() {
   echo "$(date '+%m-%d %H:%M:%S') $*" >> "$LOG"
@@ -42,6 +46,14 @@ module_version() {
 ifaa_domain() {
   ps -AZ 2>/dev/null \
     | awk -v pkg="$IFAA_PACKAGE" '$NF == pkg { split($1,a,":"); print a[3]; exit }'
+}
+
+gms_limit_state() {
+  case "$(dumpsys greezer 2>/dev/null | grep -m1 'mGmsLimitEnabled')" in
+    *true*) echo 1 ;;
+    *false*) echo 0 ;;
+    *) echo unknown ;;
+  esac
 }
 
 audio_mounted() {
@@ -73,6 +85,11 @@ print_status() {
   echo "lsp_main=$(has_package "$LSP_MAIN" && echo 1 || echo 0)"
   echo "lsp_wallet=$(has_package "$LSP_WALLET" && echo 1 || echo 0)"
   echo "audio_mounted=$(audio_mounted && echo 1 || echo 0)"
+  echo "gms_unfreeze=$(get_global "$GMS_UNFREEZE_KEY" 1)"
+  echo "gms_limit=$(gms_limit_state)"
+  echo "greeze_allow=$(greeze_allow_list)"
+  echo "millet_loaded=$([ -d /sys/module/millet_core ] && echo 1 || echo 0)"
+  echo "millet_greeze=$(case "$(dumpsys greezer 2>/dev/null | grep -m1 'MilletEnable=')" in *true*) echo 1 ;; *false*) echo 0 ;; *) echo unknown ;; esac)"
 }
 
 status_file() {
@@ -130,7 +147,63 @@ apply_touch_module() {
   log "touch owner: module"
 }
 
+# HyperOS CN Greeze quick-freezes com.google.android.gms ~60 s after
+# screen-off (mGmsLimitEnabled), which stalls FCM until the next screen-on.
+# "dumpsys greezer IM GMS disable|enable" is AurogonImmobulusMode's own debug
+# switch for that flag; it resets to true whenever system_server restarts.
+apply_gms_push() {
+  want=$(get_global "$GMS_UNFREEZE_KEY" 1)
+  if [ "$want" = 0 ]; then
+    dumpsys greezer IM GMS enable >/dev/null 2>&1
+  else
+    dumpsys greezer IM GMS disable >/dev/null 2>&1
+  fi
+  log "gms push: unfreeze=$want gms_limit=$(gms_limit_state)"
+}
+
+set_gms_push() {
+  case "$1" in
+    0|1) settings put global "$GMS_UNFREEZE_KEY" "$1" ;;
+    *) log "invalid gms unfreeze value: $1"; return 1 ;;
+  esac
+  apply_gms_push
+}
+
+# Without Xiaomi's millet kernel driver (now loaded by millet_fix.sh; if it is
+# switched off or fails, millet_monitor crash-loops) Greeze cannot thaw a
+# frozen app when a packet arrives (reportNet never fires).  Its launch-mode
+# freeze on every screen-on
+# ("LM FZ") then leaves apps with their own long connection frozen until the
+# next alarm: WeChat notifications arrive in bursts minutes late.  Put them on
+# AurogonImmobulusMode.mAllowList via its debug command.  Greeze rebuilds that
+# list whenever the cloud string Settings.Secure immobulus_mode_switch_restrict
+# changes, so remember which string we applied on and redo it after a change.
+greeze_allow_list() {
+  v=$(get_global "$GREEZE_ALLOW_KEY" "$GREEZE_ALLOW_DEFAULT")
+  [ "$v" = none ] && v=
+  echo "$v"
+}
+
+greeze_cloud_sig() {
+  settings get secure "$GREEZE_CLOUD_KEY" 2>/dev/null | md5sum | cut -d' ' -f1
+}
+
+apply_greeze_allow() {
+  for p in $(greeze_allow_list); do
+    dumpsys greezer LM add "$p" >/dev/null 2>&1
+  done
+  greeze_cloud_sig > "$MODDIR/.greeze_cloud_sig"
+  log "greeze LM allow: $(greeze_allow_list)"
+}
+
+check_greeze_allow() {
+  [ "$(cat "$MODDIR/.greeze_cloud_sig" 2>/dev/null)" = "$(greeze_cloud_sig)" ] && return 0
+  apply_greeze_allow
+}
+
 reapply() {
+  apply_gms_push
+  apply_greeze_allow
   grant_wallet
   status_file
   log "reapply complete"
@@ -144,9 +217,13 @@ case "$1" in
   set-haptic) set_haptic "$2" ;;
   set-ifaa-model) set_ifaa_model "$2" ;;
   apply-touch-module) apply_touch_module ;;
+  apply-gms-push) apply_gms_push ;;
+  set-gms-push) set_gms_push "$2" ;;
+  apply-greeze-allow) apply_greeze_allow ;;
+  check-greeze-allow) check_greeze_allow ;;
   reapply) reapply ;;
   *)
-    echo "usage: ctl.sh {status|status-file|grant-wallet|test-wallet|set-haptic <0.3-1.2>|set-ifaa-model <model>|apply-touch-module|reapply}" >&2
+    echo "usage: ctl.sh {status|status-file|grant-wallet|test-wallet|set-haptic <0.3-1.2>|set-ifaa-model <model>|apply-touch-module|apply-gms-push|set-gms-push <0|1>|apply-greeze-allow|check-greeze-allow|reapply}" >&2
     exit 2
     ;;
 esac

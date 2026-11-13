@@ -42,6 +42,12 @@ overlay_mount DevicesOverlay.apk /product/overlay/DevicesOverlay.apk
 overlay_mount display_id_4630947008615494291.xml \
   /product/etc/displayconfig/display_id_4630947008615494291.xml
 
+# ---- Xiaomi millet driver (Greeze thaw-on-packet/binder/signal) ----
+# Must be in the kernel before system_server and millet_monitor start.
+. "$MODDIR/millet_fix.sh"
+load_millet
+log "millet: $?"
+
 # ---- touch report-rate config ----
 . "$MODDIR/touch_config.sh"
 ensure_touch_config
