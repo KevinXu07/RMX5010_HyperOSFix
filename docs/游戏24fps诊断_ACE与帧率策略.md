@@ -342,3 +342,67 @@ Blue Archive 日志每秒刷几千行 `MediaCodec: Invalid to call at Released s
 ```
 
 未验证：手头没有 120 帧游戏，"试测后升到 120"这条路径没有完整跑过；只单独验证了 GameManager 100 能把锁 24 的游戏抬到 120 档。
+
+## 2026-11-13 夜：120 帧游戏"动起来 120、静止 60"（三角洲行动 com.tencent.tmgp.dfm）
+
+1.7.21 的升档本身是正常的：
+
+```text
+21:46:54 apply com.tencent.tmgp.dfm 60Hz (probed 60fps; was 24.00Hz)
+22:07:47 raise com.tencent.tmgp.dfm to 120Hz: measured 120fps above the 60Hz cap
+GameManager: Fps:100   SF: (uid, frameRate)={10377, 120.00 Hz}
+```
+
+但游戏静止时屏幕仍是 `renderRate=60`、`activeMode` 60Hz，游戏出 62fps。
+
+### 这一层是谁
+
+- **不是游戏自己限帧**：用 SF 1035 临时强制 120Hz 模式，静止状态下实测 `averageFPS = 124.7`。
+- **不是 DisplayModeDirector**：DMD 空闲时确实会给出 `PRIORITY_USER_SETTING_PEAK_REFRESH_RATE` 最高 60
+  （小米 MIRIM 撤掉 120 票后，AOSP 默认 peak 60 生效）。但同一时刻 SF 实际用的策略是 `[0, 120]`：
+  BA 锁 24 那一刻，DMD 是 `(0.0 60.0)`，SF 是 `primaryRanges={physical=[0.00 Hz, 120.00 Hz]}`。
+  SF 从开机起 `debugDisplayModeSetByDebugEnhance=true`，不再接收 DisplayManager 下发的策略，
+  刷新率由小米 SF 自己决定（`ro.display.move_frame_rate_strategy_up=true`）。临时设
+  `settings put system peak_refresh_rate 120` 后，DMD 变成 `(0.0 120.0)`，SF 仍然是 60，可以佐证。
+- **是小米 SF 按内容选档并自锁**：游戏静止时只交出 60 帧，SF 就给 60 档，游戏也就超不过 60，只有触摸能临时解开。
+  和 BA 锁 24 是同一个机制。GameManager 投 100 在这里抬不动 60。
+
+### 试过但无效的
+
+| 手段 | 结果 |
+|---|---|
+| `persist.vendor.disable_idle_fps=1`、`persist.vendor.mi_sf.force_skip_idle_fps=1`（运行时设置） | 无变化 |
+| `display` 事务 0xfffff8 PowerKeeper 通道（`"powerkeeper"`，不校验 uid）：cookie `0x115` setGameMode、`0x107` setForceDisableIdleRefreshRate | 日志显示 `collectPowerKeeperScene` 已收到，SF 仍是 60 |
+| 同一事务的场景帧率（`addSceneRefreshRateForPackage`）+ 下拉通知栏触发窗口刷新 | 窗口上没有出现帧率投票 |
+| 临时 `peak_refresh_rate=120` | DMD 放开，SF 不理会 |
+
+### 有效：SF 1035 钉住最高档 + 1036 1 交还
+
+```text
+1036 i32 0; 1035 i32 1   → renderRate=120, activeMode 120, 三角洲静止 124.5fps
+1036 i32 1               → 回到动态策略，静止又降到 60
+```
+
+注意：1035 会把 SF 的 DisplayManagerPolicy 换成固定的单一模式，单独调用 `1035 i32 -1` 或 `1036 i32 0` 都恢复不了。
+因为 DMD 的策略本来就不会再下发，只能用 `1036 i32 1`（允许当前分辨率下的全部档位，等价于开机时的 `[0, 120]`）
+把控制权交还。AOSP 选模式时会过滤掉和默认模式分辨率不同的模式，所以 `allowGroupSwitching` 不会导致切到 1080p 模式。
+
+### game_fps.sh（KSU 1.7.22）
+
+- 游戏应得档位 = conf 指定值 > 实测帧数 × 0.9 对应的档位 > （未知游戏）只看是否低于 30。
+  低于应得档位的 90% 持续 5 秒就执行：
+  - 最高档：GameManager 投 100（作为记录，也能顶住 24 锁），并用 SF `1035` 钉住当前分辨率的最高档模式；
+  - 较低档：GameManager 投该档值，同时解除钉住。
+- 游戏离开前台（桌面、通知栏、锁屏）时立即执行 `1036 i32 1` 交还；回到游戏后再钉住。
+  钉住状态记在模块目录的 `.game_fps_pinned`，脚本重启时会先交还。
+- 学习帧率不再要求游戏先被锁：只要 SF 给到最高档（实战/触摸），就测一次（最少间隔 10 秒）。
+- 实机（三角洲行动，已学到 120）：
+
+```text
+22:24:55 keep com.tencent.tmgp.dfm at 120Hz
+22:24:56~22:25:25 静止 renderRate=120, averageFPS 124.2~124.7
+22:25:46 unpin: com.tencent.tmgp.dfm left the foreground
+22:25:56 keep com.tencent.tmgp.dfm at 120Hz
+```
+
+- 已知限制：如果脚本在钉住期间被直接杀掉，并且之后没有再启动，屏幕会一直固定在 120 直到重启（下次启动时会自动交还）。

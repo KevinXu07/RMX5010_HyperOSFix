@@ -1,38 +1,38 @@
 #!/system/bin/sh
-# Adaptive game frame-rate floor, chosen from the game's measured frame rate.
+# Adaptive game frame rate, chosen from the game's measured frame rate.
 #
 # Why this exists (see docs/游戏24fps诊断_ACE与帧率策略.md):
-#   On this port HyperOS' SurfaceFlinger drops the whole display render rate to
-#   24Hz while some games sit in a menu/lobby, although the game layer carries
-#   no explicit frame-rate request (renderFrameRate=24, frameRateOverrides=[]).
-#   The game's Choreographer then only gets 24 vsyncs/s; heavier games that
-#   miss those slots fall to the teens.  Touch boosts it back to 120Hz for the
-#   touch timer, then it falls again.
+#   On this port the frame rate is decided by HyperOS' own SurfaceFlinger
+#   strategy (ro.display.move_frame_rate_strategy_up=true; SF ignores the
+#   DisplayManager policy from boot, debugDisplayModeSetByDebugEnhance=true).
+#   It follows what the content draws and locks itself there: a game idling
+#   in a lobby is dropped to 24Hz (heavier games then fall to the teens), and
+#   a 120fps game standing still is dropped to 60Hz although it renders 124fps
+#   as soon as it is allowed to.  Only touch lifts it, for the touch timer.
 #
 # Policy (no package list, no fixed 60/90/120 table):
 #   * render tiers are read from SurfaceFlinger (mAppRequestFrameRates);
-#   * while a foreground game runs at the top tier uncapped, its real frame
-#     rate is measured from SF frame timestamps (--latency) and the highest
-#     value is remembered per package in $LEARN;
-#   * when the game is locked below 30Hz for 5s, it gets a GameManager custom
-#     frame rate for the smallest tier >= 0.9 x its measured rate, never below
-#     the floor (60).  A game never measured yet is first probed for 2s at the
-#     top tier;
-#   * GameManager is the only lever that raises the rate: its override acts as
-#     a vote for the game's layers.  The SF backdoor (1039) only throttles.
-#     A GameManager value equal (or within ~1Hz) to the top tier is ignored by
-#     SF because it matches ro.surface_flinger.game_default_frame_rate_override,
-#     so the top tier is requested as top - (top - next tier) / 3 (100 for
-#     60/120), which SF rounds to the top tier without capping the game;
-#   * while capped below the top tier, a game that saturates its cap is
-#     re-probed (every 30s, backing off to 5 min), so a menu measured at 60 does not cap the 120fps
-#     gameplay that follows;
+#   * while a foreground game runs at the top tier, its real frame rate is
+#     measured from SF frame timestamps (--latency); the highest value is
+#     remembered per package in $LEARN;
+#   * a game's tier is the smallest tier >= 0.9 x its measured rate, never
+#     below the floor (60).  When the game runs below 0.9 x its tier for 5s
+#     (or below 30Hz when its rate is not known yet, after a 2s probe at the
+#     top tier) the tier is enforced:
+#       - top tier: SurfaceFlinger backdoor 1035 pins the top display mode
+#         while the game is in the foreground; 1036 1 hands control back to
+#         the dynamic strategy when it leaves (same-resolution modes only);
+#       - lower tiers: GameManager custom frame rate, which SF honours as a
+#         vote for the game's layers (lifts the 24Hz lock to 60);
+#   * a game capped below the top tier that saturates its cap is re-probed
+#     (every 30s, backing off to 5 min), so a menu measured at 60 does not cap
+#     the 120fps gameplay that follows;
 #   * packages set by this script are listed in $MANAGED and stay managed
 #     across sessions; any other custom mode is the user's and left alone,
 #     except a GameManager custom Fps:60 left by 1.4.1-1.7.20, reset once.
 #
 # Optional overrides in /data/adb/rmx5010_game_fps.conf:
-#   package:fps    fixed floor for one game, e.g. com.example.game:120
+#   package:fps    fixed tier for one game, e.g. com.example.game:120
 #   package:off    never touch this game
 #   default:fps    floor for every other game, default 60
 MODDIR=${0%/*}
@@ -41,6 +41,7 @@ CONF=/data/adb/rmx5010_game_fps.conf
 LEARN=/data/adb/rmx5010_game_fps.learned
 MANAGED=/data/adb/rmx5010_game_fps.managed
 MIGRATED=/data/adb/rmx5010_game_fps.migrated
+PIN_STATE="$MODDIR/.game_fps_pinned"
 NON_GAME_LIST=""
 
 log() {
@@ -53,7 +54,7 @@ conf_value() {
   sed -n "s/^$1:\([0-9a-z]*\).*/\1/p" "$CONF" | head -n 1
 }
 
-# kv_get <file> <package> / kv_set <file> <package> <value>
+# kv_get <file> <package> / kv_set <file> <package> [value]
 kv_get() {
   [ -f "$1" ] || return
   sed -n "s/^$2:\([0-9]*\)$/\1/p" "$1" | head -n 1
@@ -86,7 +87,7 @@ uid_for() {
     | sed -n 's/^    uid=\([0-9][0-9]*\).*/\1/p' | head -n 1
 }
 
-# SF's per-UID render rate for the game (content/touch driven), e.g. 24.00.
+# SF's per-UID render rate for the game, e.g. 24.00.
 sf_rate_for() {
   [ -n "$1" ] || return
   dumpsys SurfaceFlinger 2>/dev/null \
@@ -113,9 +114,14 @@ tier_for() {
   echo "$TOP"
 }
 
-# GameManager value that makes SF pick <tier>.  The top tier itself is
-# ignored by SF (same as game_default_frame_rate_override), so ask for a
-# value between the top two tiers that SF still rounds up to the top.
+below() {  # below <rate> <tier>: rate < 0.9 x tier (empty rate counts)
+  [ -n "$1" ] || return 0
+  awk -v r="$1" -v t="$2" 'BEGIN { exit !(r < t * 0.9) }'
+}
+
+# GameManager value for a tier.  SF ignores a value equal (or within ~1Hz)
+# to the top tier because it matches game_default_frame_rate_override, so
+# ask for one between the top two tiers that SF still rounds up.
 gm_value() {
   if [ "$1" -ge "$TOP" ]; then
     echo $((TOP - (TOP - NEXT) / 3))
@@ -124,23 +130,69 @@ gm_value() {
   fi
 }
 
-# set_tier <package> <tier> [probe]: GameManager custom frame rate for that
-# tier.  A probe is not recorded, so being killed mid-probe cannot leave the
-# temporary top tier behind as the game's setting.
-set_tier() {
+# Display mode id of the top tier at the current resolution.
+top_mode_id() {
+  # (no "$(dumpsys)" in a variable: printf is not a builtin in mksh and the
+  # dump exceeds the argument size limit)
+  dumpsys SurfaceFlinger 2>/dev/null \
+    | sed -n '/^Pacesetter Display/,/displayManagerPolicy/p' \
+    | awk -v top="$TOP" '
+        /activeMode=\{/ { if (match($0, /resolution=[0-9x]+/))
+                            res = substr($0, RSTART + 11, RLENGTH - 11) }
+        /^ *\{id=/      { modes[++n] = $0 }
+        END { for (i = 1; i <= n; i++) {
+                if (index(modes[i], "resolution=" res ",") \
+                    && index(modes[i], "vsyncRate=" top ".")) {
+                  match(modes[i], /\{id=[0-9]+/)
+                  print substr(modes[i], RSTART + 4, RLENGTH - 4); exit } } }'
+}
+
+# Pin the top display mode (SF backdoor 1035).  1036 0 first, so a previous
+# "all rates" override does not mask the pinned policy.
+pin() {
+  [ -f "$PIN_STATE" ] && return 0
+  id=$(top_mode_id)
+  [ -n "$id" ] || { log "pin $1: no ${TOP}Hz mode found"; return 1; }
+  service call SurfaceFlinger 1036 i32 0 >/dev/null 2>&1
+  out=$(service call SurfaceFlinger 1035 i32 "$id" 2>&1)
+  case "$out" in
+    *Error*)
+      service call SurfaceFlinger 1036 i32 1 >/dev/null 2>&1
+      log "pin $1 failed: $out"
+      return 1
+      ;;
+  esac
+  echo "$1" > "$PIN_STATE"
+  return 0
+}
+
+# Give the frame rate back to the dynamic strategy: override policy that
+# allows every rate of the current resolution (what SF had from boot).
+unpin() {
+  [ -f "$PIN_STATE" ] || return 0
+  service call SurfaceFlinger 1036 i32 1 >/dev/null 2>&1
+  rm -f "$PIN_STATE"
+}
+
+# enforce <package> <tier> [probe]: GameManager value for the tier (records
+# the package as ours unless probing) plus the SF pin for the top tier.
+enforce() {
   v=$(gm_value "$2")
   out=$(cmd game set --fps "$v" "$1" 2>&1)
   case "$out" in
-    *"fps-override"*)
-      [ "$3" = probe ] || kv_set "$MANAGED" "$1" "$2"
-      return 0
-      ;;
+    *"fps-override"*) ;;
+    *) log "GameManager fps $v for $1 failed: $out"; return 1 ;;
   esac
-  log "GameManager fps $v for $1 failed: $out"
-  return 1
+  [ "$3" = probe ] || kv_set "$MANAGED" "$1" "$2"
+  if [ "$2" -ge "$TOP" ]; then
+    pin "$1"
+  else
+    unpin
+  fi
 }
 
 release() {
+  unpin
   cmd game reset "$1" >/dev/null 2>&1
   kv_set "$MANAGED" "$1"
 }
@@ -182,9 +234,9 @@ measure_fps() {
   done | sort -n | tail -n 1
 }
 
-# probe <package>: fps measured with the top tier requested.
+# probe <package>: fps measured with the top tier enforced (not recorded).
 probe() {
-  set_tier "$1" "$TOP" probe || { echo 0; return; }
+  enforce "$1" "$TOP" probe || { echo 0; return; }
   sleep 1
   measure_fps "$1" 2
 }
@@ -212,17 +264,20 @@ while [ "$(getprop sys.boot_completed 2>/dev/null)" != 1 ] && [ $i -lt 180 ]; do
 done
 sleep 2
 
+# A restart of this script (module update) must not leave a pinned mode.
+unpin
+
 TIERS=$(load_tiers)
 [ -n "$TIERS" ] || TIERS="60 120"
 TOP=$(echo $TIERS | awk '{ print $NF }')
 NEXT=$(echo $TIERS | awk '{ print (NF > 1) ? $(NF - 1) : $NF }')
 FLOOR=$(conf_value default)
 case "$FLOOR" in ''|*[!0-9]*) FLOOR=60 ;; esac
-log "adaptive game fps watch (tiers: $TIERS; top via GameManager $(gm_value "$TOP"); floor $FLOOR)"
+log "adaptive game fps watch (tiers: $TIERS; top ${TOP}Hz pinned via SF 1035; floor $FLOOR)"
 
 last_pkg=
 state=
-started=0
+low_since=0
 uid=
 cap=0
 last_measure=0
@@ -235,9 +290,13 @@ while true; do
     | head -n 1)
 
   if [ "$pkg" != "$last_pkg" ]; then
+    if [ -f "$PIN_STATE" ]; then
+      unpin
+      log "unpin: $last_pkg left the foreground"
+    fi
     last_pkg=$pkg
     state=pending
-    started=$(date +%s)
+    low_since=0
     uid=
     cap=0
     probe_every=30
@@ -294,11 +353,11 @@ while true; do
       continue
     fi
     # Ours: carry on from the tier set earlier (also across reboots).
-    if [ "$state" != boosted ]; then
+    if [ "$state" != managed ]; then
       cap=$mine
       last_probe=$now
-      state=boosted
-      log "keep $pkg at ${cap}Hz"
+      state=managed
+      enforce "$pkg" "$cap" && log "keep $pkg at ${cap}Hz"
     fi
     # Capped below the top tier and running flat out against the cap?
     # Lift the cap briefly to see whether the game can go faster.
@@ -317,7 +376,7 @@ while true; do
           # Really a ${cap}fps game: probe less and less often (max 5 min).
           probe_every=$((probe_every * 2))
         fi
-        set_tier "$pkg" "$cap"
+        enforce "$pkg" "$cap"
       fi
     fi
     sleep 5
@@ -325,63 +384,70 @@ while true; do
   fi
 
   # Standard mode but listed as ours: cleared by the user or the system.
-  [ -n "$mine" ] && kv_set "$MANAGED" "$pkg"
-  [ "$state" = custom ] || [ "$state" = boosted ] && state=pending
+  if [ -n "$mine" ]; then
+    kv_set "$MANAGED" "$pkg"
+    unpin
+  fi
+  case "$state" in custom|managed) state=pending ;; esac
 
   [ -n "$uid" ] || uid=$(uid_for "$pkg")
   rate=$(sf_rate_for "$uid")
+  learned=$(kv_get "$LEARN" "$pkg")
+  if [ -n "$fixed" ]; then
+    want=$(tier_for "$((fixed * 10 / 9))")
+  elif [ -n "$learned" ]; then
+    want=$(tier_for "$learned")
+  else
+    want=30   # unknown game: only a lock below 30Hz counts
+  fi
 
-  # Not locked: let the game run, and learn its real frame rate whenever it
-  # is uncapped at the top tier (gameplay, or the touch boost in menus).
+  # Running at the top tier: learn the game's real frame rate.
   if [ -n "$rate" ] \
-     && awk -v r="$rate" 'BEGIN { exit !(r >= 30) }'; then
+     && awk -v r="$rate" -v t="$TOP" 'BEGIN { exit !(r >= t * 0.9) }' \
+     && [ $((now - last_measure)) -ge 10 ]; then
+    last_measure=$now
+    m=$(measure_fps "$pkg" 2)
+    if [ "$m" -gt "${learned:-0}" ]; then
+      kv_set "$LEARN" "$pkg" "$m"
+      log "learn $pkg: ${m}fps at ${rate}Hz (was ${learned:-none})"
+    fi
+  fi
+
+  if ! below "$rate" "$want"; then
     if [ "$state" != native ]; then
-      log "observe $pkg: ${rate}Hz"
+      log "observe $pkg: ${rate}Hz (tier ${want}Hz)"
       state=native
     fi
-    if awk -v r="$rate" -v t="$TOP" 'BEGIN { exit !(r >= t * 0.9) }' \
-       && [ $((now - last_measure)) -ge 10 ]; then
-      last_measure=$now
-      m=$(measure_fps "$pkg" 2)
-      old=$(kv_get "$LEARN" "$pkg")
-      if [ "$m" -gt "${old:-0}" ]; then
-        kv_set "$LEARN" "$pkg" "$m"
-        log "learn $pkg: ${m}fps at ${rate}Hz (was ${old:-none})"
-      fi
-    else
-      sleep 2
-    fi
-    started=$(date +%s)
+    low_since=0
+    sleep 2
     continue
   fi
 
-  # Locked low (<30Hz) or no rate: wait 5s to skip loading transitions.
-  if [ $((now - started)) -lt 5 ]; then
+  # Below its tier: wait 5s to skip loading transitions and touch gaps.
+  [ "$low_since" -gt 0 ] || low_since=$now
+  if [ $((now - low_since)) -lt 5 ]; then
     sleep 1
     continue
   fi
 
   if [ -n "$fixed" ]; then
-    target=$(tier_for "$((fixed * 10 / 9))")
+    target=$want
     why="conf $fixed"
+  elif [ -n "$learned" ]; then
+    target=$want
+    why="learned ${learned}fps"
   else
-    m=$(kv_get "$LEARN" "$pkg")
-    if [ -z "$m" ]; then
-      # Never seen uncapped: probe at the top tier.
-      m=$(probe "$pkg")
-      kv_set "$LEARN" "$pkg" "$m"
-      why="probed ${m}fps"
-    else
-      why="learned ${m}fps"
-    fi
+    m=$(probe "$pkg")
+    kv_set "$LEARN" "$pkg" "$m"
     target=$(tier_for "$m")
+    why="probed ${m}fps"
   fi
 
-  if set_tier "$pkg" "$target"; then
+  if enforce "$pkg" "$target"; then
     cap=$target
     last_probe=$(date +%s)
     log "apply $pkg ${target}Hz ($why; was ${rate:-none}Hz)"
-    state=boosted
+    state=managed
   fi
   sleep 5
 done
