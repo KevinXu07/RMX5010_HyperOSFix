@@ -19,6 +19,12 @@
 #           + 刷新率门禁(haotian.xml) + 灵动岛 74px/padding14px(arsc 原位补丁)
 #   vbmeta  avboff 空头三件套
 # 产物: $OUT/images/*.img + sha256_images.txt (+ vbmeta/)
+#
+# 覆盖范围:只到 2026-10-25 的配方。之后的镜像改动(10-26 指纹系列、11-02
+# Settings/overlay 原厂化)不在本脚本内,需按 docs/镜像改动总表.md 第 4 节叠加;
+# 与当前整包一致的镜像以 out/full_image_haotian/images/ 为准。
+# 注意:本脚本的灵动岛 arsc 补丁(Phase 4)在 11-02 后已不用,改由 KSU 模块
+# bind-mount + Sense IslandHooks。
 # ============================================================================
 set -euo pipefail
 

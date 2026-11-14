@@ -110,8 +110,8 @@ install_module zygisk_lsposed "$MODDIR/installer/LSPosed-v2.2.1-7912-release.zip
 # 没装就装；已装但 versionCode 低于内置版本就用 pm install -r 原地升级（同一
 # release 签名，LSPosed 启用状态和作用域不变）。签名不同（例如 debug 签名版）
 # 系统不允许覆盖，跳过并提示，APK 留给用户手动处理。
-SENSE_APK="$MODDIR/installer/Sense-1.51.apk"
-SENSE_VERSION_CODE=44
+SENSE_APK="$MODDIR/installer/Sense-1.54.apk"
+SENSE_VERSION_CODE=47
 
 sense_installed_code() {
   dumpsys package com.zephiel.sense 2>/dev/null |
@@ -206,7 +206,7 @@ wallet_install com.oplus.eid "$WALLET_DIR/EidService.apk"
 # 这里会跳过，由 service.sh 在首次开机后补注册（之后再重启一次生效）。
 LSPD_DB=/data/adb/lspd/config/modules_config.db
 SCOPE_DEX="$MODDIR/installer/lspdscope.dex"
-SENSE_SCOPES="android system com.android.systemui com.android.bluetooth com.android.settings com.miui.securitymanager com.miui.securitycenter org.ifaa.aidl.manager com.xiaomi.finddevice com.android.nfc com.android.se com.finshell.wallet com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.miui.tsmclient com.oplus.camera"
+SENSE_SCOPES="android system com.android.systemui com.android.bluetooth com.android.settings com.miui.securitymanager com.miui.securitycenter org.ifaa.aidl.manager com.xiaomi.finddevice com.android.nfc com.android.se com.finshell.wallet com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.miui.tsmclient com.oplus.camera com.xiaomi.aon"
 
 sense_register_scopes() {
   if [ ! -f "$LSPD_DB" ] || [ ! -f "$SCOPE_DEX" ]; then
@@ -227,8 +227,9 @@ sense_register_scopes() {
   log "Sense 作用域注册 rc=$rc"
   rm -f /data/local/tmp/rmx5010_lspdscope.dex
   # 标记交给 service.sh 的开机兜底看：注册过就不再重复写数据库。
-  # v2: 增加 com.oplus.camera（相册缩略图 hook），旧标记会让开机兜底跳过。
-  [ "$rc" -eq 0 ] && touch "$MODDIR/.sense_scopes_registered_v2" 2>/dev/null
+  # v2: 增加 com.oplus.camera（相册缩略图 hook）；v3: 增加 com.xiaomi.aon（注视感知）。
+  # 旧标记会让开机兜底跳过，所以每加一个作用域就升一次版本。
+  [ "$rc" -eq 0 ] && touch "$MODDIR/.sense_scopes_registered_v3" 2>/dev/null
 }
 
 sense_register_scopes

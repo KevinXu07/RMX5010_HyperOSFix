@@ -233,8 +233,8 @@ apply_ifaa_policy
   # v2 marker: the first release registered the wallet scopes but not
   # com.oplus.camera, so the camera gallery hook never loaded.  A new marker
   # makes existing installs run this registration once more on the next boot
-  # (LspdModule only inserts missing rows).
-  marker="$MODDIR/.sense_scopes_registered_v2"
+  # (LspdModule only inserts missing rows).  v3 adds com.xiaomi.aon (gaze bridge).
+  marker="$MODDIR/.sense_scopes_registered_v3"
   if [ -f "$marker" ] || [ ! -f "$db" ] || [ ! -f "$dex" ]; then
     log "sense scopes: skip"
     exit 0
@@ -251,11 +251,44 @@ apply_ifaa_policy
       com.miui.securitymanager com.miui.securitycenter org.ifaa.aidl.manager \
       com.xiaomi.finddevice com.android.nfc com.android.se com.finshell.wallet \
       com.heytap.tas com.unionpay.tsmservice com.oplus.eid com.miui.tsmclient \
-      com.oplus.camera ) >> "$LOG" 2>&1
+      com.oplus.camera com.xiaomi.aon ) >> "$LOG" 2>&1
   rc=$?
   rm -f /data/local/tmp/rmx5010_lspdscope.dex
   log "sense scopes: rc=$rc (takes effect after one more reboot)"
   [ "$rc" -eq 0 ] && touch "$marker"
+) >> "$LOG" 2>&1 &
+
+# ---- Push delivery: FCM (Greeze GMS limit) + WeChat/QQ (no millet) ----
+# HyperOS CN (PolicyManager.isCnModel) starts GreezeManagerService with
+# mGmsLimitEnabled=true: ~60 s after screen-off AurogonImmobulusMode
+# "quick freeze"s com.google.android.gms (main + clone user) and only thaws it
+# on screen-on, so FCM apps (Telegram, X, ChatGPT, GitHub, Chrome ...) get
+# nothing while the phone sleeps.  MiPush (xmsf) is a Greeze core uid and is
+# not affected.  The only runtime switch is the debug dump command below; it
+# lives in system_server, so it must be re-applied every boot.
+# settings global op13_fix_gms_unfreeze=0 keeps the stock behaviour.
+# Details: docs/MiPush与FCM推送_诊断与修复.md
+(
+  i=0
+  while [ $i -lt 180 ]; do
+    [ "$(getprop sys.boot_completed)" = 1 ] && break
+    sleep 1
+    i=$((i+1))
+  done
+  sh "$MODDIR/ctl.sh" apply-gms-push >> "$LOG" 2>&1
+  # Make sure Greeze picked up the millet driver loaded in post-fs-data.
+  . "$MODDIR/millet_fix.sh"
+  ensure_millet
+  # Keep WeChat/QQ out of the screen-on launch-mode freeze as well (see
+  # ctl.sh apply_greeze_allow); with millet they would also be thawed by
+  # packets, this keeps them from being frozen in the first place.
+  # Re-apply only when the cloud allow-list string changes, because Greeze
+  # rebuilds the list from it.
+  sh "$MODDIR/ctl.sh" apply-greeze-allow >> "$LOG" 2>&1
+  while true; do
+    sleep 600
+    sh "$MODDIR/ctl.sh" check-greeze-allow >> "$LOG" 2>&1
+  done
 ) >> "$LOG" 2>&1 &
 
 # OplusCamera default role/runtime permissions after PackageManager has scanned

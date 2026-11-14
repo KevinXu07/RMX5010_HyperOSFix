@@ -226,3 +226,183 @@ cmd game list-modes -> custom
 说明：若采样期间焦点短暂切到通知栏/桌面，峰值会按新前台会话重置，此时静置 24 会回落到
 60 而不是 120；这是有意的，避免把一次瞬时 120 请求永久固化成 120Hz 待机。用户若要某游戏
 固定 120，可在 `/data/adb/rmx5010_game_fps.conf` 写 `包名:120`。
+
+## 2026-11-13 追加：群友反馈"部分游戏十几 Hz"——24Hz 不是游戏申请的，1.4.1 的抬帧一直失败
+
+### 现象（Blue Archive 主界面，游戏内只有 30/60 两档）
+
+```text
+mode=standard
+(uid, gameModeOverride, gameDefaultOverride)={10312, 0 120}
+setFrameRate=
+    (uid, frameRate)={10312, 24.00 Hz}
+renderRate=24.00 Hz   activeMode vsyncRate=120.00 Hz
+timestats: SurfaceView[com.nexon.bluearchive/...](BLAST)  averageFPS = 23.810
+```
+
+触摸后由 SF 触摸升帧拉回 120Hz（游戏实测 62.5fps），触摸定时器到期（`touchTimer=3000.000 ms`）后又掉回 24。
+
+### 24Hz 来自系统，不是游戏
+
+- 24Hz 时游戏的所有图层都没有 `requestedFrameRate`，HWC 图层表 `Frame Rate (Explicit)` 一栏为空，即游戏没有调用 `setFrameRate`。
+- system_server 记录的是**整屏**渲染档降到 24，并且不是按 uid 覆盖：
+  ```text
+  20:06:16.452 DisplayDeviceRepository: Display device changed render timings: "内置屏幕",
+    renderFrameRate=24.000002, ... frameRateOverrides=[]
+  ```
+- AOSP SurfaceFlinger 在 `ContentDetection=false`（`ro.surface_flinger.use_content_detection_for_refresh_rate=false`）下不会按内容降帧。
+  小米改过的 `/system_ext/lib64/libmisurfaceflinger.so` 里有按内容平均帧率 / 视频帧率调档的逻辑，相关字符串：
+  `isPrimary=%d, avgFrameRate=%d, mInSmallDamageInfo=%d ... touchHint=%d`、`setVideoFps ...`、
+  `updateVideoDecoderInfo mVideoFrameRateSnapshot`。Blue Archive 主界面同时在用 `c2.qti.vp9.decoder` 播放背景视频。
+  所以结论是 MiSF 的动态帧率策略把游戏当成了低帧内容。具体是视频分支还是平均帧率分支触发的，还没有反汇编确认。
+- 降到 24 后，游戏的 Choreographer 每秒只收到 24 个 vsync，出帧不可能超过 24，形成自锁，只有触摸能暂时解开。
+
+### 十几 Hz 的来源（推断，这台机上没有直接复现）
+
+SF 只会使用档位表 `20/24/30/40/60/120` 里的渲染档，最低 20Hz。实测用 GameManager 设 15/12 时，SF 不接受，改给 60/120；
+设 20 时游戏实测 `averageFPS = 20.000`。所以不会存在 10–15Hz 的显示档位。十几帧应该是较重的游戏被锁在 24Hz/20Hz
+的 vsync 上，赶不上某个 vsync 就只能隔一个出一帧（24→12、20→10）。
+
+### 1.4.1 为什么没把它抬起来
+
+```text
+19:47:22 apply com.nexon.bluearchive fps=120.00 (requested 24.00Hz, peak 120.00Hz): Invalid frame rate: '120.00'
+```
+
+1. SF 打印的帧率是 `120.00`，脚本原样传给 `cmd game set --fps`；GameManager 只接受整数，`120` 可以，`120.00` 会被拒绝。
+   只要游戏本会话出现过 120（触摸升帧时**任何**游戏都会显示 120），掉到 24 后的抬帧就一直失败。
+2. 即使改成整数 120 也没有用：GameManager 设成 120（等于面板刷新率）时 SF 视为"不限制"，实测仍是 `renderRate=24`。
+   GameManager 设 60（或 90，SF 取 60）才有效：`gameModeOverride=60` → `renderRate=60`，实测 62.5fps。
+3. SF backdoor（`service call SurfaceFlinger 1039 i32 <uid> f 120`）可以强制到 120Hz，实测 Blue Archive 58fps；
+   `f 0` 只清除该 uid 的覆盖。
+
+### 修复（game_fps.sh，KSU 1.7.20）
+
+- 删除"本会话峰值"逻辑，因为触摸升帧让它失去意义；自动下限固定为 `default`（60），走 GameManager custom。
+- 写入前取整（最高 120），GameManager 不会再因为带小数而拒绝。
+- conf 里 `包名:90`/`包名:120` 这类大于 60 的下限改走 SF backdoor（uid 覆盖），游戏离开前台时用 `f 0` 清掉。
+- 代价：自动下限为 custom 60 的游戏会全程封顶 60；真正支持 120 的游戏需要在 conf 里写 `包名:120`。
+
+实机验证（重置为 standard 后回到主界面）：
+
+```text
+20:13:36 renderRate=24.00Hz  gameModeOverride=0   averageFPS = 23.815
+20:13:39 apply com.nexon.bluearchive fps=60 (was 24.00Hz): ... fps-override: 60
+20:13:40 renderRate=60.00Hz  gameModeOverride=60  averageFPS = 61.830
+20:13:44 ~ 20:14:31 averageFPS = 62.4 ~ 62.6（静置 + 触摸都不再低于 60）
+```
+
+conf 写 120 的 backdoor 分支：这次测试中游戏没有再掉到 24，没有走到这条分支；只验证过手动 `1039 ... f 120` 有效。
+
+### 顺带发现（未处理）
+
+Blue Archive 日志每秒刷几千行 `MediaCodec: Invalid to call at Released state` / `Unity AndroidVideoMedia::GetNextVideoFrameRaw bad buffer index: -10000`。
+背景视频的 VP9 解码器已经被释放，Unity 仍在轮询，`logd` 因此被拖到 40%+ CPU。原因待查，可能和 MiSF 认为视频一直在播放有关。
+
+## 2026-11-13 晚：120 帧游戏被 1.7.20 压到 60 → 按实测帧数自动选档
+
+群友反馈：游戏本身是 120 帧，装 1.7.20 后被压到 60。原因是 1.7.20 在锁 24 时写入 GameManager custom 60，
+这个设置会持久保存，而且对该 uid 是上限，此后游戏每一局都封顶 60。
+
+### 各种抬帧手段实测（Blue Archive，先确认已锁在 24Hz）
+
+| 手段 | 结果 |
+|---|---|
+| GameManager `--fps 60` / `61` | renderRate 60，62.5fps ✅ |
+| GameManager `--fps 90` | SF 取 60 |
+| GameManager `--fps 100` | renderRate 120，uid 120（游戏不被限到 100），62.5fps ✅ |
+| GameManager `--fps 119` / `120` | 被忽略，仍是 24Hz / 23.8fps（与 `ro.surface_flinger.game_default_frame_rate_override=120` 相同或几乎相同） |
+| SF backdoor `1039 i32 uid f 60/120` | 只能**限制**该 uid 的帧率，整屏被锁 24 时设 60 仍是 24；成功时返回 `Result: Parcel(NULL)` |
+| Joyose 广播 `com.xiaomi.joyose.OVERRIDE_GAME_FRESHRATE` | 无效果 |
+| `display` 私有事务 `0xfffff8`（`appRequestChangeSceneRefreshRate`，接口名 `android.view.android.hardware.display.IDisplayManager`，参数为包名 + fps，uid<10000 可调） | `mRefreshRatePackages` 能写入，但要等窗口有变化才生效，13 秒内仍是 24，不可靠 |
+
+结论：能把帧率**抬上去**的只有 GameManager 的覆盖值（它作为游戏图层的投票）。最高档要投"最高档 − (最高档 − 次高档)/3"
+（60/120 机型上是 100），SF 会取到最高档，且不会把游戏限在这个值。
+
+### 新策略（game_fps.sh）
+
+- 渲染档位从 SF 的 `mAppRequestFrameRates` 读取，不写死 60/90/120。
+- 游戏没被锁且渲染档在最高档时，用 `dumpsys SurfaceFlinger --latency <图层>` 按游戏图层的实际呈现时间算帧率，
+  每 10 秒最多测一次，最高值记到 `/data/adb/rmx5010_game_fps.learned`。
+- 锁到 <30Hz 持续 5 秒后，选"≥ 实测帧数 × 0.9 的最小档"，下限 60：实测 62 → 60，88/90 → 120（本机没有 90 档），118 → 120。
+  没测过的游戏先按最高档试测 2 秒。
+- 被限在较低档、并且游戏一直顶满这一档时，会放开到最高档试测：先每 30 秒一次，没升档就翻倍间隔，最长 5 分钟。
+  这样在菜单里学到 60 的 120 帧游戏，进入实战后能升到 120。试测不写入 managed，进程中途被杀也不会留下临时档位。
+- 脚本设置过的游戏记在 `/data/adb/rmx5010_game_fps.managed`，跨重启继续管理；其他 custom 模式视为用户设置，不动。
+  1.4.1~1.7.20 留下的 `Fps:60` custom 会对每个包自动重置一次（记录在 `.migrated`）。
+- conf：`包名:120` 表示固定档位（按选档规则取档），`包名:off` 表示不管这个游戏，`default:N` 修改下限。
+
+实机（Blue Archive，游戏内上限 60）：
+
+```text
+21:23:54 learn com.nexon.bluearchive: 60fps at 120.00Hz (was none)
+21:24:01 apply com.nexon.bluearchive 60Hz (learned 60fps; was 24.00Hz)
+21:24:29~21:25:15 averageFPS 62.4~62.6；每 30 秒放开到 100 试测一次，仍约 62fps，保持 60 档
+11-13 21:11:11 reset legacy GameManager custom 60 for com.nexon.bluearchive
+```
+
+未验证：手头没有 120 帧游戏，"试测后升到 120"这条路径没有完整跑过；只单独验证了 GameManager 100 能把锁 24 的游戏抬到 120 档。
+
+## 2026-11-13 夜：120 帧游戏"动起来 120、静止 60"（三角洲行动 com.tencent.tmgp.dfm）
+
+1.7.21 的升档本身是正常的：
+
+```text
+21:46:54 apply com.tencent.tmgp.dfm 60Hz (probed 60fps; was 24.00Hz)
+22:07:47 raise com.tencent.tmgp.dfm to 120Hz: measured 120fps above the 60Hz cap
+GameManager: Fps:100   SF: (uid, frameRate)={10377, 120.00 Hz}
+```
+
+但游戏静止时屏幕仍是 `renderRate=60`、`activeMode` 60Hz，游戏出 62fps。
+
+### 这一层是谁
+
+- **不是游戏自己限帧**：用 SF 1035 临时强制 120Hz 模式，静止状态下实测 `averageFPS = 124.7`。
+- **不是 DisplayModeDirector**：DMD 空闲时确实会给出 `PRIORITY_USER_SETTING_PEAK_REFRESH_RATE` 最高 60
+  （小米 MIRIM 撤掉 120 票后，AOSP 默认 peak 60 生效）。但同一时刻 SF 实际用的策略是 `[0, 120]`：
+  BA 锁 24 那一刻，DMD 是 `(0.0 60.0)`，SF 是 `primaryRanges={physical=[0.00 Hz, 120.00 Hz]}`。
+  SF 从开机起 `debugDisplayModeSetByDebugEnhance=true`，不再接收 DisplayManager 下发的策略，
+  刷新率由小米 SF 自己决定（`ro.display.move_frame_rate_strategy_up=true`）。临时设
+  `settings put system peak_refresh_rate 120` 后，DMD 变成 `(0.0 120.0)`，SF 仍然是 60，可以佐证。
+- **是小米 SF 按内容选档并自锁**：游戏静止时只交出 60 帧，SF 就给 60 档，游戏也就超不过 60，只有触摸能临时解开。
+  和 BA 锁 24 是同一个机制。GameManager 投 100 在这里抬不动 60。
+
+### 试过但无效的
+
+| 手段 | 结果 |
+|---|---|
+| `persist.vendor.disable_idle_fps=1`、`persist.vendor.mi_sf.force_skip_idle_fps=1`（运行时设置） | 无变化 |
+| `display` 事务 0xfffff8 PowerKeeper 通道（`"powerkeeper"`，不校验 uid）：cookie `0x115` setGameMode、`0x107` setForceDisableIdleRefreshRate | 日志显示 `collectPowerKeeperScene` 已收到，SF 仍是 60 |
+| 同一事务的场景帧率（`addSceneRefreshRateForPackage`）+ 下拉通知栏触发窗口刷新 | 窗口上没有出现帧率投票 |
+| 临时 `peak_refresh_rate=120` | DMD 放开，SF 不理会 |
+
+### 有效：SF 1035 钉住最高档 + 1036 1 交还
+
+```text
+1036 i32 0; 1035 i32 1   → renderRate=120, activeMode 120, 三角洲静止 124.5fps
+1036 i32 1               → 回到动态策略，静止又降到 60
+```
+
+注意：1035 会把 SF 的 DisplayManagerPolicy 换成固定的单一模式，单独调用 `1035 i32 -1` 或 `1036 i32 0` 都恢复不了。
+因为 DMD 的策略本来就不会再下发，只能用 `1036 i32 1`（允许当前分辨率下的全部档位，等价于开机时的 `[0, 120]`）
+把控制权交还。AOSP 选模式时会过滤掉和默认模式分辨率不同的模式，所以 `allowGroupSwitching` 不会导致切到 1080p 模式。
+
+### game_fps.sh（KSU 1.7.22）
+
+- 游戏应得档位 = conf 指定值 > 实测帧数 × 0.9 对应的档位 > （未知游戏）只看是否低于 30。
+  低于应得档位的 90% 持续 5 秒就执行：
+  - 最高档：GameManager 投 100（作为记录，也能顶住 24 锁），并用 SF `1035` 钉住当前分辨率的最高档模式；
+  - 较低档：GameManager 投该档值，同时解除钉住。
+- 游戏离开前台（桌面、通知栏、锁屏）时立即执行 `1036 i32 1` 交还；回到游戏后再钉住。
+  钉住状态记在模块目录的 `.game_fps_pinned`，脚本重启时会先交还。
+- 学习帧率不再要求游戏先被锁：只要 SF 给到最高档（实战/触摸），就测一次（最少间隔 10 秒）。
+- 实机（三角洲行动，已学到 120）：
+
+```text
+22:24:55 keep com.tencent.tmgp.dfm at 120Hz
+22:24:56~22:25:25 静止 renderRate=120, averageFPS 124.2~124.7
+22:25:46 unpin: com.tencent.tmgp.dfm left the foreground
+22:25:56 keep com.tencent.tmgp.dfm at 120Hz
+```
+
+- 已知限制：如果脚本在钉住期间被直接杀掉，并且之后没有再启动，屏幕会一直固定在 120 直到重启（下次启动时会自动交还）。
