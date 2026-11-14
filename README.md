@@ -20,6 +20,8 @@
 
 ## 当前修复状态
 
+镜像里各分区实际改了什么、哪些已撤回、哪些被模块在运行时覆盖，见 [镜像改动总表](docs/镜像改动总表.md)。
+
 | 修复项 | 主线 | 载体 | 离线验证 | 实机验证 | 文档 |
 |---|---|---|---|---|---|
 | 小米账号 / MTD 依赖闭包 | **haotian**（原厂 16.0.7.201 底） | odm + vendor 重建 | ✅ 标注/差分/策略编译 | ✅ 实机验证通过（开机引导过账号） | [方案](docs/小米账号MTD依赖_修复方案.md) |
@@ -29,14 +31,14 @@
 | NFC 载荷（XMNfcNci + NXP 栈） | **haotian**（0.19 donor 不带 XMNfcNci，注入） | system 注入 | ✅ 哈希/大小核对 | ✅ 实机（service nfc found、initialized=true） | [补丁](patches/nfc-nxp-fix/README.md) |
 | 查找设备 | nezha（保持官方原版） | — | ✅ 官方哈希核对 | ✅（nezha 主线） | [说明](patches/finddevice-notz/README.md) |
 | CNE 防崩（可选件） | nezha | vendor dex 补丁 | ✅ | ✅（nezha 主线） | [补丁](patches/signal-fix/README.md) |
-| 亮度曲线 + 圆角/状态栏高度 | nezha | product（displayconfig XML + DevicesAndroidOverlay） | ✅ 差分/资源核对 | ✅（nezha 主线） | [补丁](patches/brightness-overlay/README.md) |
-| 音频爆音 / 切音"哔"声（appname 截断） | nezha | system_ext 重建（libaudiopolicymanagerimpl.so 补丁） | ✅ 差分/反汇编核对 | ✅（nezha 主线） | [补丁](patches/audio-pop-fix/README.md) |
-| 分辨率列表（1.5K/1080p）+ 120Hz 刷新率 | nezha | product（nezha.xml + build.prop 动态帧率） | ✅ 差分/XML语法核对 | ✅（nezha 主线） | [补丁](patches/resolution-and-refresh/README.md) |
-| 原生内核级事件驱动 LTPO 降频恢复 | nezha | vendor 重建（rmx5010_ltpo_restore.ko + init 原生自启） | ✅ 符号/校验/ELF一致 | ✅（nezha 主线） | [补丁](patches/resolution-and-refresh/README.md) |
-| 相机 P010 厂商格式崩溃修复 | nezha | system（libnativewindow.so 扩展分支） | ✅ 差分/反汇编核对 | ✅（nezha 主线） | [补丁](patches/camera-p010-fix/README.md) |
-| 相机全套成像与多摄落盘闭包（IMX906/LYT600/前摄/14路/fakejar） | nezha | product + odm 重建（OplusCamera 特权预置 + Provider stub） | ✅ 差分/标签/策略/fsck | ✅（nezha 主线） | [补丁](patches/camera-full-fix/README.md) |
+| 亮度曲线 + 圆角/状态栏高度 | **haotian** | 亮度：KSU 模块 bind-mount 按面板实测重建的 displayconfig（1.7.18，覆盖镜像里的旧曲线）；圆角/状态栏/挖孔：镜像为 donor 原版 overlay，KSU 模块 bind-mount 补丁版（11-02 原厂化后） | ✅ 差分/资源核对 | ✅ 实机（18.7 lux 52.5 尼特≈原厂；radius=116、挖孔 68×140） | [补丁](patches/brightness-overlay/README.md) |
+| 音频爆音 / 切音"哔"声（appname 截断） | **haotian** | 改由 KSU 模块 bind-mount（见下方"音频卡顿"行）；不再改 system_ext 镜像 | ✅ 差分/反汇编核对 | ✅ 实机 | [补丁](patches/audio-pop-fix/README.md) |
+| 分辨率列表（1.5K/1080p）+ 120Hz 刷新率 | **haotian**（120Hz 门禁；分辨率列表未单独复核） | product（`device_features/haotian.xml`，`scripts/build_h19_refresh.sh`） | ✅ 差分/XML语法核对 | ✅ 实机（120Hz） | [补丁](patches/resolution-and-refresh/README.md) |
+| 原生内核级事件驱动 LTPO 降频恢复 | **haotian** | vendor 重建（rmx5010_ltpo_restore.ko + init 原生自启） | ✅ 符号/校验/ELF一致 | ✅ 实机（2026-10-25，ADFR min-fps 命令已发） | [补丁](patches/resolution-and-refresh/README.md) |
+| 相机 P010 厂商格式崩溃修复 | **haotian** | KSU 模块以 `/system/lib64` overlay 提供补丁版 libnativewindow.so（1.7.6 起） | ✅ 差分/反汇编核对 | ✅ 实机 | [补丁](patches/camera-p010-fix/README.md) |
+| 相机全套成像与多摄落盘闭包（IMX906/LYT600/前摄/14路/fakejar） | haotian（由下方"相机移植"行取代） | 镜像 product 仅保留 `priv-app/OplusCamera` 底；其余由 KSU `camera_fix.sh` 免改镜像注入 | ✅ 差分/标签/策略/fsck | ✅ 实机（见"相机移植"行） | [补丁](patches/camera-full-fix/README.md) |
 | NFC 五项 Mi 调优 prop（mitouch/phonecase/repair/secure_display_optim/wallet_fusion） | haotian（**未生效**） | product build.prop → 运行时被 factory vendor 策略拒（init 无 vendor_nfc_mi_prop set 权限） | ✅ 镜像差分 | ❌ 运行时缺属性；NFC 基础功能不受影响，vendor sepolicy 补丁方案见 nfc README | [补丁](patches/nfc-nxp-fix/README.md) |
-| 超声波屏下指纹（FOD 物理中心 632,2146 + 特性声明 + UFF HAL） | nezha | product + odm 重建（nezha.xml + 权限声明 + odm 坐标） | ✅ 差分/参数/语法核对 | ✅（nezha 主线；haotian 底**已知未修**——sensorType 映射坑待重做） | [补丁](patches/fingerprint-fod/README.md) |
+| 超声波屏下指纹（FOD 物理中心 632,2146 + 特性声明 + UFF HAL） | **haotian** | product（特性声明 + 7 项 FOD 属性 + haotian.xml）+ vendor（property_contexts 重标 vendor_frc_prop）+ odm（UFF HAL + `vendor.fingerprint.cali=1`）+ system_ext（miui-services 指纹桩），修复清单 D13–D23 | ✅ 差分/参数/语法核对 | ✅ 实机（录入成功、设置出现指纹、锁屏光圈圆心 630,2150） | [补丁](patches/fingerprint-fod/README.md) |
 | 低共振触觉铃声（MiRemix.ogg 1.15MB 旗舰声学对齐） | nezha | product 重建（高品质低共振音频载荷替换） | ✅ 文件与 SHA256 核对 | ✅（nezha 主线） | [补丁](patches/haptic-ringtone/README.md) |
 | 双击亮屏（AOD LPWG + F4 唤醒） | **haotian** | KSU 模块 `service.sh`（触摸 HAL 写 node1=1 / node21=2） + LSPosed F4 钩子（HBP 一次双击一个 F4，单 F4 直接唤醒） | ✅ 冷启动 / touchDaemon 重启自动重发 | ✅ 实机（`low power gesture mode enabled`，注入单 F4 从 Dozing → Awake） | [文档](docs/双击亮屏_LPWG根因与修复.md) |
 | 超级小爱语音识别（ASR） | **haotian** | LSPosed `com.xiaomi.finddevice` NoTZ 凭证委托 + KSU 通用 `acc_udevid` | ✅ 账号 uDevId / MiTalk / fid+sig+ts 签名链路 | ⏳ Aliyun（主）/ Volc（回退）均 `40002 Device deny`（设备/账号授权，非本地凭证） | [根因](docs/超级小爱语音识别_根因与修复.md) / [鉴权逆向](docs/超级小爱鉴权逆向_读取清单.md) |
