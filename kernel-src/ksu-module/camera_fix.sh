@@ -501,14 +501,25 @@ camera_post_boot() {
     i=$((i+1))
   done
   sleep 2
+  # Merged images (ro.rmx5010.image_merge=1) preinstall both stubs and grant
+  # the camera's runtime permissions through default-permissions; only a
+  # camera updated into /data/app still needs its extra libraries copied.
+  if command -v image_merged >/dev/null 2>&1 && image_merged; then
+    case "$(pm path com.oplus.camera 2>/dev/null)" in
+      *package:/data/app/*) camera_fix_data_app_libs ;;
+    esac
+    log "camera: post-boot steps are in the image"
+    return 0
+  fi
   # Older module versions installed this stub as a data app.  A data app
   # shadows the /product copy, so an old stub (1.1/versionCode 2, which still
   # declared a MAIN/LAUNCHER activity) keeps its blank "Gallery" icon after
-  # the module is updated even though the bundled stub has no activity.
-  # Upgrade whenever the installed copy is older than 1.2/versionCode 3.
+  # the module is updated.  1.3/versionCode 4 adds ForwardActivity, which
+  # hands the camera's thumbnail/edit intents to the HyperOS gallery.
+  # Upgrade whenever the installed copy is older than versionCode 4.
   cur=$(dumpsys package com.coloros.gallery3d 2>/dev/null \
         | sed -n 's/^ *versionCode=\([0-9][0-9]*\).*/\1/p' | head -1)
-  if [ "${cur:-0}" -lt 3 ] 2>/dev/null; then
+  if [ "${cur:-0}" -lt 4 ] 2>/dev/null; then
     out=$(pm install -r "$CAM_DIR/priv-app/ColorOSGalleryStub/ColorOSGalleryStub.apk" 2>&1)
     log "camera: gallery stub install (was ${cur:-missing}) ${out:-ok}"
   fi

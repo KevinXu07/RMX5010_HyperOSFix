@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RMX5010 HyperOS port: let ColorDisplayService accept the ColorOS render
+     intents (standard 301, nature 303, vivid 307) that RmxScreenColorBridge
+     writes to display_color_mode.  Static, above android.overlay.common
+     (FrameworksResCommon_Sys, priority 100), which sets the stock list. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.rmx5010.overlay.colormodes"
+    android:versionCode="1"
+    android:versionName="1.0">
+    <overlay
+        android:targetPackage="android"
+        android:isStatic="true"
+        android:priority="999" />
+    <application android:hasCode="false" />
+</manifest>

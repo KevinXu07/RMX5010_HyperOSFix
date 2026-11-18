@@ -7,6 +7,11 @@ log() {
   echo "$(date '+%m-%d %H:%M:%S') $*" >> "$LOG"
 }
 
+# See post-fs-data.sh: images with ro.rmx5010.image_merge=1 carry the static
+# fixes, the IFAA SELinux rule and the kernel modules.
+IMAGE_MERGED=$(getprop ro.rmx5010.image_merge)
+image_merged() { [ "$IMAGE_MERGED" = 1 ]; }
+
 # ---- touch report-rate config (retry if post-fs-data was too early) ----
 . "$MODDIR/touch_config.sh"
 ensure_touch_config
@@ -20,10 +25,15 @@ fi
 
 # ---- QESDK / QAPE: fix seccomp allow-list, stop TZ log spam ----
 . "$MODDIR/qesdk_fix.sh"
-ensure_qesdk_policy
-qesdk_rc=$?
-log "qesdk policy: $qesdk_rc"
-apply_qseelogd_fix
+if image_merged; then
+  qesdk_rc=skip
+  log "qesdk policy: in image"
+else
+  ensure_qesdk_policy
+  qesdk_rc=$?
+  log "qesdk policy: $qesdk_rc"
+  apply_qseelogd_fix
+fi
 if [ "$qesdk_rc" = 0 ]; then
   # post-fs-data normally mounts the policies before these services start;
   # restart here so a module update without reboot also picks them up.
@@ -40,9 +50,13 @@ while [ $i -lt 60 ]; do
   sleep 1
   i=$((i+1))
 done
-chmod 0644 "$MODDIR/rmx5010_fod_bridge.ko" 2>>"$LOG"
-insmod "$MODDIR/rmx5010_fod_bridge.ko" >> "$LOG" 2>&1
-log "insmod rc=$?"
+if [ -d /sys/module/rmx5010_fod_bridge ]; then
+  log "fod bridge already loaded"
+else
+  chmod 0644 "$MODDIR/rmx5010_fod_bridge.ko" 2>>"$LOG"
+  insmod "$MODDIR/rmx5010_fod_bridge.ko" >> "$LOG" 2>&1
+  log "insmod rc=$?"
+fi
 
 # ---- double tap to wake ----
 # HyperOS never programs the Oplus touch LPWG gesture mode, so the panel never
@@ -59,9 +73,12 @@ set_gesture() {
   service call "$TOUCH_SVC" 4 i32 0 i32 21 s16 2 >/dev/null 2>&1
 }
 
+# Merged images program it from /odm/etc/init/rmx5010_touch.rc and map the
+# resulting KEY_F4 to WAKEUP (/product/usr/keylayout/touchpanel.kl).
 i=0
 applied=0
-while [ $i -lt 180 ]; do
+image_merged && applied=skip
+while [ "$applied" = 0 ] && [ $i -lt 180 ]; do
   out=$(service call "$TOUCH_SVC" 4 i32 0 i32 21 s16 2 2>/dev/null)
   case "$out" in
     *00000001*)
@@ -74,7 +91,11 @@ while [ $i -lt 180 ]; do
   sleep 1
   i=$((i+1))
 done
-[ "$applied" = 1 ] || log "gesture apply timed out"
+case "$applied" in
+  1) ;;
+  skip) log "gesture: in image (rmx5010_touch.rc)" ;;
+  *) log "gesture apply timed out" ;;
+esac
 
 # ---- configurable touch report rate ----
 # Node 182 (/proc/touchpanel/report_rate) is written through the Oplus touch
@@ -104,7 +125,9 @@ done
 # ---- haptic amplitude (Sense slider -> QTI HV fifo_vmax) ----
 # VibrationScaler effect-strength only changes the framework label; the QTI
 # HV custom-effect path keeps magnitude=0x7fff. fifo_vmax is the real gain.
-(
+# Merged images drive it from the HyperOS Settings slider instead
+# (miui-services RmxHapticBridge + /system_ext/etc/init/rmx5010_haptic.rc).
+image_merged || (
   last=
   while true; do
     scale=$(settings get global op13_fix_haptic_scale 2>/dev/null)
@@ -161,6 +184,7 @@ ifaa_domain() {
 }
 
 apply_ifaa_policy() {
+  image_merged && return
   domain=$(ifaa_domain)
   case "$domain" in
     platform_app|platform_app_[0-9]*|system_app|system_app_[0-9]*) ;;
@@ -299,7 +323,7 @@ apply_ifaa_policy
 camera_post_boot >> "$LOG" 2>&1 &
 
 # Watch for touchDaemon restarts (gesture state is per-process).
-(
+image_merged || (
   last_pid=
   while true; do
     pid=$(pidof touchDaemon 2>/dev/null)

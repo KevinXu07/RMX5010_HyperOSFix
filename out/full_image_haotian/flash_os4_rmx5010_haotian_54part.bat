@@ -24,7 +24,7 @@ if not exist "%VERIFY%" (echo [错误] 缺少校验脚本 verify_package.ps1。&echo 按任
 if not exist "%DEVCHECK%" (echo [错误] 缺少设备预检脚本 flash_device_check.ps1。&echo 按任意键退出。&pause >nul&exit /b 1)
 
 echo.
-echo OS4 RMX5010 haotian OS4.0.0.19 全量镜像包（54 分区）
+echo OS4 RMX5010 haotian OS4.0.4.0 全量镜像包（54 分区）
 echo 适用机型：真我 GT7 Pro / RMX5010，请勿用于其它机型。
 echo 本次首次刷入会清除所有用户数据，包括应用、照片和内置存储文件；请先完成备份。
 echo 使用包内 platform-tools，无需配置 ADB 环境；电脑仍需安装 USB 驱动。
@@ -150,8 +150,8 @@ echo.
 echo.
 echo 首次开机进入系统后：
 echo 1) 安装 optional\SukiSU_v4.2.0_40900-release.apk；
-echo 2) 安装 camera_fix 目录下的 rmx5010_fod_bridge-1.7.1-full.zip，重启生效；
-echo 模块自带 ZygiskNext / LSPosed / Sense 与 ColorOS 钱包，安装时自动部署。
+echo 2) 安装 camera_fix 目录下的 rmx5010_fod_bridge-1.8.2-lite.zip，重启生效；
+echo 模块自带 ZygiskNext / LSPosed / Sense，安装时自动部署；ColorOS 钱包已预装在镜像里。
 pause >nul
 exit /b 0
 

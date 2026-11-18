@@ -13,7 +13,7 @@
 - **仅 RMX5010（realme GT7 Pro）**，目标分区布局 54 张镜像；不要套用到别的机型。
 - 修复按**底包版本**对齐。当前主线底包（**2026-10-25 起**）：
   - 硬件底：RMX5010 ColorOS **16.0.7.201**（11.F.64_2640）
-  - 用户空间（donor）：小米 **haotian**（15 Pro）**OS4.0.0.19.XOBCNXM**（Android 17 / SDK 37）
+  - 用户空间（donor）：小米 **haotian**（15 Pro）**OS4.0.4.0.XOBCNXM** 正式版（Android 17 / SDK 37；2026-11-17 由 OS4.0.0.19 换入，改动不变，见 `docs/镜像改动总表.md` 第 4 节）
 - **主线切换记录**：2026-10-25 起 donor 从 nezha OS4.0.2.0.XPACNXM 切换为 haotian OS4.0.0.19.XOBCNXM（"以 15 Pro 的包修"）。下表状态列注明各行适用主线：**haotian** = 已迁移到 haotian 底并实机验证；**nezha** = 仅在 nezha 主线验证，方法有效、待迁移。
 - 换底包后**必须重新推导 SELinux 闭包**（类型后缀/策略版本都会变），不能直接套用本仓库的 `.cil` 片段。
 - 动 vendor / odm 属于高风险操作：本仓库所有脚本都假定 `vendor` 之外的固件分区（xbl/aop/hyp/tz/abl/keymaster/modem…）**永不改写**。

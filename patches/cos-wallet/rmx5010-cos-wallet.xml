@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RMX5010: ColorOS wallet set.  FinShell / TAS request this OPlus permission;
+     the NFC service's wallet bridge (RmxWalletNfc, XMNfcNci) only accepts
+     card-selection broadcasts from holders.  The LSPosed module used to define
+     it in its own manifest; a SystemConfig permission is a normal permission
+     owned by "android", granted at install to the packages that request it. -->
+<permissions>
+    <permission name="oplus.permission.OPLUS_COMPONENT_SAFE" />
+</permissions>

@@ -59,6 +59,24 @@ nop    : 1F 20 03 D5
 appname + track name），加上 `setParametersForSystemClient`，所以 impl 是
 3 个点。`libmiaudiopolicymanager.so` 的 5 个偏移与 OP13 完全一致。
 
+## 2.1 OS4.0.4.0（2026-11-17）
+
+4.0.4.0 的两个库重新链接过（.rodata 字符串整体平移 0x1a，引用它们的
+adrp/add 立即数随之变化），但 8 个调用点的偏移、所在函数和上下文都没变，
+同样 `blr x8 → nop`：
+
+```text
+libaudiopolicymanagerimpl.so
+  原始 f3a9aed6909c4bf2…   补丁 7973f7689dc843223673e8e79ff75d5d048015d996121276fc9a4b294795da20
+libmiaudiopolicymanager.so
+  原始 197c8fc2b69335cc…   补丁 ff6c6d8652e6f9eb3b2b3091049ffdf62dd4636038fa8fc36278af014a962cb9
+```
+
+模块 1.7.26 起 `audio/` 下按原厂库哈希命名：`<lib>.<原厂 SHA-256 前 16 位>`，
+`post-fs-data.sh` 先算 `/system_ext/lib64/<lib>` 的哈希再选文件，对不上就
+不挂载（日志 `no patch for … left stock`）。0.19 的两份改名为
+`*.a48b94d1081b1067` / `*.9352ea35fae6d165`，字节不变。
+
 ## 3. 挂载方式
 
 `kernel-src/ksu-module/post-fs-data.sh`：

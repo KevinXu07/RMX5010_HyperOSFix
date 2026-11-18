@@ -3,8 +3,8 @@
 #
 # audioserver loads libaudiopolicymanagerimpl.so / libmiaudiopolicymanager.so
 # from its own mount namespace (init's). Bind-mount the patched copies before
-# audioserver starts; the patched copies are identical except for the eight
-# appname setParameters calls (blr x8 -> nop).
+# audioserver starts; each patched copy is identical to its stock build except
+# for the eight appname setParameters calls (blr x8 -> nop).
 MODDIR=${0%/*}
 LOG="$MODDIR/audio.log"
 : > "$LOG"
@@ -14,6 +14,14 @@ log() {
 }
 
 log "post-fs-data uptime: $(cat /proc/uptime 2>/dev/null)"
+
+# Images built with scripts/merge_module_into_image.sh already carry the
+# display overlays, camera port, audio patch, props, SELinux rules, QESDK and
+# WeChat fixes and the kernel modules (ro.rmx5010.image_merge=1); skip those
+# parts there and keep only what has to run at boot.
+IMAGE_MERGED=$(getprop ro.rmx5010.image_merge)
+image_merged() { [ "$IMAGE_MERGED" = 1 ]; }
+image_merged && log "image_merge=1: static fixes are in the image"
 
 # ---- display overlays: donor originals carry 140px/169px + 38px padding;
 # the port build wants 116/160 + 74/14. Bind size/mtime-matched patched
@@ -34,6 +42,7 @@ overlay_mount() {
     log "overlay: mount failed $1"
   fi
 }
+if ! image_merged; then
 overlay_mount DevicesAndroidOverlay.apk /product/overlay/DevicesAndroidOverlay.apk
 overlay_mount DevicesOverlay.apk /product/overlay/DevicesOverlay.apk
 # Auto-brightness curve: lux points re-mapped through the panel's Apollo
@@ -41,12 +50,18 @@ overlay_mount DevicesOverlay.apk /product/overlay/DevicesOverlay.apk
 # nits; the image copy maps through a wrong nits table (~50% of stock).
 overlay_mount display_id_4630947008615494291.xml \
   /product/etc/displayconfig/display_id_4630947008615494291.xml
+fi
 
 # ---- Xiaomi millet driver (Greeze thaw-on-packet/binder/signal) ----
 # Must be in the kernel before system_server and millet_monitor start.
 . "$MODDIR/millet_fix.sh"
-load_millet
-log "millet: $?"
+if image_merged; then
+  # /vendor/etc/init/rmx5010_drivers.rc loads them at post-fs-data.
+  log "millet: loaded by vendor rc"
+else
+  load_millet
+  log "millet: $?"
+fi
 
 # ---- touch report-rate config ----
 . "$MODDIR/touch_config.sh"
@@ -59,7 +74,7 @@ log "touch config: $?"
 # while the comments list is being scrolled.  Restore a 2s touch boost; the
 # compositor raises the refresh rate for interaction and drops back to the
 # video/content rate after the timer expires.
-if [ -x /data/adb/ksud ]; then
+if [ -x /data/adb/ksud ] && ! image_merged; then
   /data/adb/ksud resetprop ro.surface_flinger.set_touch_timer_ms 2000 2>/dev/null
 fi
 log "sf touch timer: $(getprop ro.surface_flinger.set_touch_timer_ms)"
@@ -69,7 +84,7 @@ log "sf touch timer: $(getprop ro.surface_flinger.set_touch_timer_ms)"
 # greyed warm/default/cool buttons (enabled in one mode only).  Enable the
 # colour picker in every mode except expert; Sense (ScreenColorBridgeHooks)
 # turns the resulting setFeature(mode 23/0/1/2) calls into colour matrices.
-if [ -x /data/adb/ksud ]; then
+if [ -x /data/adb/ksud ] && ! image_merged; then
   /data/adb/ksud resetprop ro.colorpick_adjust true 2>/dev/null
   /data/adb/ksud resetprop ro.all_modes.colorpick_adjust true 2>/dev/null
 fi
@@ -105,21 +120,40 @@ fi
 # Hide MiuiCamera, mount OplusCamera/provider stub into priv-app, merge camera
 # permission XMLs, add the missing seapp_contexts mapping and P010 lib.
 . "$MODDIR/camera_fix.sh"
-ensure_camera_port
-log "camera port: $?"
+if image_merged; then
+  log "camera port: in image"
+  # Image files carry mtime 0, so PackageManager's parse cache never sees an
+  # updated APK at the same path.  A device upgraded with data kept then keeps
+  # the old gallery stub manifest (versionCode 3, no ForwardActivity) and the
+  # camera thumbnail stops opening the HyperOS gallery.  The stub is 12 KB;
+  # drop its cache entry before PackageManager scans so it is parsed again.
+  for c in /data/system/package_cache/*/ColorOSGalleryStub-*; do
+    [ -e "$c" ] && rm -f "$c" && log "camera: dropped stale parse cache $(basename "$c")"
+  done
+else
+  ensure_camera_port
+  log "camera port: $?"
+fi
 
 SRC="$MODDIR/audio"
 TARGET=/system_ext/lib64
-for f in libaudiopolicymanagerimpl.so libmiaudiopolicymanager.so; do
-  if [ ! -f "$SRC/$f" ]; then
-    log "missing $SRC/$f"
+image_merged && log "audio: patched libraries are in the image"
+# One patched copy per stock build, named <lib>.<first 16 hex of the stock
+# lib's SHA-256>. The two libraries are relinked on every ROM update, so a copy
+# made from another build must never be mounted; with no match the stock
+# library stays in place.
+image_merged || for f in libaudiopolicymanagerimpl.so libmiaudiopolicymanager.so; do
+  stock=$(nsenter -t 1 -m -- sha256sum "$TARGET/$f" 2>/dev/null | awk '{print substr($1,1,16)}')
+  patched="$SRC/$f.$stock"
+  if [ -z "$stock" ] || [ ! -f "$patched" ]; then
+    log "no patch for $f stock=$stock, left stock"
     continue
   fi
   if [ -x /system/bin/chcon ]; then
-    /system/bin/chcon u:object_r:system_lib_file:s0 "$SRC/$f" 2>>"$LOG"
+    /system/bin/chcon u:object_r:system_lib_file:s0 "$patched" 2>>"$LOG"
   fi
-  if nsenter -t 1 -m -- mount --bind "$SRC/$f" "$TARGET/$f" 2>>"$LOG"; then
-    log "mounted $f"
+  if nsenter -t 1 -m -- mount --bind "$patched" "$TARGET/$f" 2>>"$LOG"; then
+    log "mounted $f (stock $stock)"
   else
     log "mount failed $f"
   fi
@@ -135,14 +169,22 @@ done
 # every few seconds and qseelogd spins on the TZ log stream.  Mount the fixed
 # policies before the HAL services start, and turn the log daemon off.
 . "$MODDIR/qesdk_fix.sh"
-ensure_qesdk_policy
-log "qesdk policy: $?"
-apply_qseelogd_fix
+if image_merged; then
+  log "qesdk policy: in image"
+else
+  ensure_qesdk_policy
+  log "qesdk policy: $?"
+  apply_qseelogd_fix
+fi
 
 # ---- WeChat: hide the ODM fake CameraX library declaration ----
 # The fake jar contains old Kotlin classes; WeChat's optional uses-library
 # resolves them and aborts.  The permission XML is the only registration
 # point, so hide it before PackageManager scans /odm.
 . "$MODDIR/wechat_fix.sh"
-ensure_wechat_camera_fix
-log "wechat camera fix: $?"
+if image_merged; then
+  log "wechat camera fix: in image"
+else
+  ensure_wechat_camera_fix
+  log "wechat camera fix: $?"
+fi

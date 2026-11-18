@@ -35,3 +35,5 @@ upstream/** binary
 *.ko filter=lfs diff=lfs merge=lfs -text
 *.jar filter=lfs diff=lfs merge=lfs -text
 *.bin filter=lfs diff=lfs merge=lfs -text
+# 音频策略补丁库按原厂库哈希命名（<lib>.so.<hash16>），不以 .so 结尾
+kernel-src/ksu-module/audio/*.so.* binary filter=lfs diff=lfs merge=lfs -text
