@@ -114,6 +114,31 @@ camera_merge_dir() {
   return 1
 }
 
+# PackageManager caches each parsed APK under /data/system/package_cache and
+# only re-parses when the file's path or mtime changes.  The image APK
+# (6.020.888) and the module APK (6.070.45) share the path, the versionCode
+# (60000) and mtime 0, so a cache built while the module was not active yet
+# (first boot after flashing the full package) stays in use after the module
+# is installed: the 6.020 manifest declares TrackEventProvider, which the
+# 6.070 dex does not contain, and com.oplus.camera dies in bindApplication
+# ("Unable to get provider ...TrackEventProvider").  Drop the camera cache
+# entry once per module APK (size+mtime of the bundled file), before
+# PackageManager starts; it is rebuilt from the mounted APK on this boot.
+CAM_CACHE_MARK=/data/adb/rmx5010_camera_pkgcache.sig
+
+camera_refresh_pkg_cache() {
+  src=$1
+  sig=$(stat -c '%s-%Y' "$src" 2>/dev/null) || return 0
+  [ "$(cat "$CAM_CACHE_MARK" 2>/dev/null)" = "$sig" ] && return 0
+  n=0
+  for f in /data/system/package_cache/*/OplusCamera-*; do
+    [ -e "$f" ] || continue
+    rm -f "$f" && n=$((n+1))
+  done
+  echo "$sig" > "$CAM_CACHE_MARK"
+  log "camera: package cache cleared ($n entries) for module apk $sig"
+}
+
 camera_overlay_privapp() {
   rw="$CAM_TMP/privapp_rw"
   # Use the complete 6.070.45 build bundled in this module.  The 6.020
@@ -130,6 +155,9 @@ camera_overlay_privapp() {
     log "camera: product priv-app overlay already active"
     return 0
   fi
+  case "$apk_src" in
+    "$CAM_DIR"/*) camera_refresh_pkg_cache "$apk_src" ;;
+  esac
 
   nsenter -t 1 -m -- umount "$rw" 2>/dev/null
   rm -rf "$rw"
@@ -473,14 +501,25 @@ camera_post_boot() {
     i=$((i+1))
   done
   sleep 2
+  # Merged images (ro.rmx5010.image_merge=1) preinstall both stubs and grant
+  # the camera's runtime permissions through default-permissions; only a
+  # camera updated into /data/app still needs its extra libraries copied.
+  if command -v image_merged >/dev/null 2>&1 && image_merged; then
+    case "$(pm path com.oplus.camera 2>/dev/null)" in
+      *package:/data/app/*) camera_fix_data_app_libs ;;
+    esac
+    log "camera: post-boot steps are in the image"
+    return 0
+  fi
   # Older module versions installed this stub as a data app.  A data app
   # shadows the /product copy, so an old stub (1.1/versionCode 2, which still
   # declared a MAIN/LAUNCHER activity) keeps its blank "Gallery" icon after
-  # the module is updated even though the bundled stub has no activity.
-  # Upgrade whenever the installed copy is older than 1.2/versionCode 3.
+  # the module is updated.  1.3/versionCode 4 adds ForwardActivity, which
+  # hands the camera's thumbnail/edit intents to the HyperOS gallery.
+  # Upgrade whenever the installed copy is older than versionCode 4.
   cur=$(dumpsys package com.coloros.gallery3d 2>/dev/null \
         | sed -n 's/^ *versionCode=\([0-9][0-9]*\).*/\1/p' | head -1)
-  if [ "${cur:-0}" -lt 3 ] 2>/dev/null; then
+  if [ "${cur:-0}" -lt 4 ] 2>/dev/null; then
     out=$(pm install -r "$CAM_DIR/priv-app/ColorOSGalleryStub/ColorOSGalleryStub.apk" 2>&1)
     log "camera: gallery stub install (was ${cur:-missing}) ${out:-ok}"
   fi

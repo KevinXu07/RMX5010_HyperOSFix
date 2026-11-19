@@ -34,4 +34,4 @@ if ($IncludeSukisu) {
   $sukisuHash = (Get-FileHash -LiteralPath $sukisuPath -Algorithm SHA256).Hash.ToLowerInvariant()
   Write-Host "[通过] optional\init_boot_sukisu.img sha256=$sukisuHash"
 }
-Write-Host "OS4 RMX5010 haotian OS4.0.0.19 包校验通过，共 $($lines.Count) 个镜像。"
+Write-Host "OS4 RMX5010 haotian OS4.0.4.0 包校验通过，共 $($lines.Count) 个镜像。"

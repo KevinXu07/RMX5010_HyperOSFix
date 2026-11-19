@@ -87,3 +87,9 @@ LSPosed 作用域需包含 `com.android.settings` 与 `com.android.systemui`
 - 分享包 zip 尚未重建（images 已变化），待实机回归后再打包。
 - LSPosed 框架未随包提供；未启用 Sense 时灵动岛为 donor 默认位置，
   人脸录入仍可能卡在进度环。
+
+## 补充（2026-11-17）
+
+复盘见 `docs/模块改动入镜像可行性.md`：PMS 对系统分区 APK 不校验内容摘要（`skipVerify = PARSE_IS_SYSTEM_DIR`），
+上文“签名摘要失效”不是被拒原因。改版 Settings 与 DevicesOverlay 的 `resources.arsc` 重打包后未 4 字节对齐
+（targetSdk≥30 解析直接报错），DevicesAndroidOverlay 的签名块被剥离，才是 `-w` 后失效的原因。

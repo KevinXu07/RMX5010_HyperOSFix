@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Rebuild ColorOSGalleryStub.apk, the metadata-only com.coloros.gallery3d
-# package OplusCamera requires (Util.e0 reads its meta-data).
+# Rebuild ColorOSGalleryStub.apk, the com.coloros.gallery3d stub (metadata +
+# ForwardActivity that hands the camera gallery intents to HyperOS) that
+# OplusCamera requires (Util.e0 reads its meta-data).
 #
-# The package has no activity and no MAIN/LAUNCHER intent-filter: it must not
-# show a "Gallery" icon on the home screen.
+# The package has no MAIN/LAUNCHER intent-filter (ForwardActivity only filters
+# the camera's REVIEW action): it must not show a "Gallery" icon on the home
+# screen.
 #
 # The APK is signed with the Android debug key, the same key the previously
 # deployed stub used, so `pm install -r` can update an installed copy.
@@ -41,6 +43,19 @@ OUT="$SRC/ColorOSGalleryStub.apk"
   --manifest "$(win "$SRC/AndroidManifest.xml")" \
   -I "$(win "$ANDROID_JAR")" \
   --min-sdk-version 35 --target-sdk-version 36
+# ForwardActivity (1.3+): the Java source lives outside the module tree so it
+# is not packed into the module zip.
+JSRC="$ROOT/patches/gallery-stub/ForwardActivity.java"
+mkdir -p "$TMP/classes" "$TMP/dex"
+"$JAVA_HOME/bin/javac.exe" --release 17 -classpath "$(win "$ANDROID_JAR")" \
+  -d "$(win "$TMP/classes")" "$(win "$JSRC")"
+JAVA_HOME="$JAVA_HOME" "$BT/d8.bat" --release --min-api 35 --lib "$(win "$ANDROID_JAR")" \
+  --output "$(win "$TMP/dex")" "$(win "$TMP/classes/com/coloros/gallery3d/ForwardActivity.class")"
+python -I - "$(win "$UNSIGNED")" "$(win "$TMP/dex/classes.dex")" <<'PY'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], 'a', zipfile.ZIP_DEFLATED) as z:
+    z.write(sys.argv[2], 'classes.dex')
+PY
 "$BT/zipalign.exe" -p -f 4 "$(win "$UNSIGNED")" "$(win "$ALIGNED")"
 JAVA_HOME="$JAVA_HOME" "$BT/apksigner.bat" sign \
   --ks "$(win "$DEBUG_KEYSTORE")" \

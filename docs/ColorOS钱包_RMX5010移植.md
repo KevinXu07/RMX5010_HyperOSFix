@@ -1,5 +1,11 @@
 # ColorOS 钱包（FinShell/TAS）RMX5010 移植记录
 
+> **2026-11-18：钱包已整体做进镜像，不再需要 Sense / LSPosed。** 钱包进程、
+> NFC 服务、SecureElement、system_server、小米 TSM、eID 的全部钩子都改写成了
+> dex 补丁（`patches/cos-wallet/`、`scripts/patch_*.py`），说明、落点表和与模块的
+> 差异见 `docs/模块改动入镜像可行性.md` §4.10；改钱包 APK 时的签名长度问题见同文 §2.2。
+> 下文第 3–5 节的“用户态安装 + Sense 作用域”流程只适用于没有合入的旧镜像。
+>
 > 2026-10-27 迁移：钱包兼容 hooks 已经并入 **Sense（`com.zephiel.sense`）**，
 > Sense 是当前唯一的 LSPosed 模块；不再安装
 > `local.mio.coloroswalletcompat` 这个独立模块。下面关于 COS-WALLET-FIX

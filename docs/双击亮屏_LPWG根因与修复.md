@@ -149,6 +149,18 @@ syna_tcm_parse_touch_report: Gesture ID=1, pwr_state = 2, sub_pwr_state = 5
   因此改为直接调用 `PowerManager.wakeUp(...)`；唤醒后 `interactive=true`。
 - 口袋门控（proximity）和 500 ms 冷却保持不变。
 
+## 5.2 镜像版（2026-11-17，不需要 root / Sense）
+
+见 `docs/模块改动入镜像可行性.md` §4.6：
+- 手势下发：odm `bin/rmx5010_touchctl`（`touchHidlTest` 副本，标签 `oplus_touch_daemon_exec`）
+  由 `etc/init/rmx5010_touch.rc` 在 touchDaemon 启动、开机完成、每次灭屏时执行
+  `-c wo 0 21 2` 和 `-c wo 0 1 1`。touchDaemon 的域本来就能查找并调用触控 HAL，不改策略。
+- 唤醒：product `usr/keylayout/touchpanel.kl` 把 `KEY_F4`（62）映射成 `WAKEUP`，HyperOS 原生唤醒，
+  不再需要 Sense 的单次 F4 hook。
+- 跟随设置“双击亮屏”开关：miui-services 的 `TouchWakeUpFeatureManager` 补丁把开关同步到
+  `sys.rmx5010.dt2w`，rc 按它开 / 关 node 1。
+- 不再有 Sense 的口袋防误触判断。
+
 ## 6. 风险与备注
 
 - 该方案把双击亮屏**强制开启**；HyperOS 设置里的“双击亮屏”开关没有接入（F4 钩子内部的

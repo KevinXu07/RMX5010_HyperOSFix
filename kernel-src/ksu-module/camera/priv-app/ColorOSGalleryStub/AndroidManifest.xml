@@ -1,26 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  com.coloros.gallery3d metadata stub for OplusCamera.
+  com.coloros.gallery3d stub for OplusCamera.
 
   OplusCamera reads this package's meta-data through
   getPackageInfo("com.coloros.gallery3d", 0x80) and NPEs when the package is
-  absent.  The package supplies metadata only (android:hasCode="false"); it
-  deliberately has no activity and no MAIN/LAUNCHER intent-filter, so it never
-  puts a "Gallery" icon on the home screen.
+  absent.  It also sends its gallery intents to this package; ForwardActivity
+  (patches/gallery-stub/ForwardActivity.java, 1.3+) re-sends them to the
+  HyperOS gallery / media editor:
+    - thumbnail tap: com.android.camera.action.REVIEW + setPackage(this)
+    - watermark edit: explicit com.oplus.gallery.pictureeditorpage.PhotoEditorActivity
+  Only the camera's REVIEW action is filtered (not VIEW), so the stub does not
+  show up in the "open with" chooser for images.  No MAIN/LAUNCHER, no icon.
 
   Rebuild with scripts/build_gallery_stub.sh.  Keep the signing key (Android
   debug) unchanged: the installed update must be signed by the same key.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.coloros.gallery3d"
-    android:versionCode="3"
-    android:versionName="1.2">
+    android:versionCode="4"
+    android:versionName="1.3">
     <uses-sdk android:minSdkVersion="35" android:targetSdkVersion="36" />
-    <application android:label="Gallery" android:hasCode="false">
+    <application android:label="Gallery" android:hasCode="true">
         <meta-data android:name="isIntegrationUITransitionSupported" android:value="false" />
         <meta-data android:name="isSupportBlurEdit" android:value="false" />
         <meta-data android:name="isSupportEarlyStart" android:value="false" />
         <meta-data android:name="isSupportAIIDPhoto" android:value="false" />
         <meta-data android:name="isSupportMediaInfoInsert" android:value="false" />
+        <activity android:name=".ForwardActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="com.android.camera.action.REVIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+            </intent-filter>
+        </activity>
+        <activity-alias android:name="com.oplus.gallery.pictureeditorpage.PhotoEditorActivity"
+            android:targetActivity=".ForwardActivity"
+            android:exported="true" />
     </application>
 </manifest>

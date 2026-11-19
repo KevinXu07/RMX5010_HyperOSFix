@@ -1504,3 +1504,35 @@ hook 从未加载。1.7.4 的 stub 去掉空白 Activity 后，缩略图从"打�
 
 **版本**：1.7.5 / versionCode 42。用户更新模块后需重启一次，LSPosed 才会把
 `CameraGalleryHooks` 加载进相机进程。
+
+### 13.30 刷整包后先开机再装模块：相机启动即闪退（TrackEventProvider，2026-11-15）
+
+**现象**（群友 logcat，10 次启动全部相同）：
+```
+RuntimeException: Unable to get provider com.oplus.nearx.track.internal.storage.db.app.track.dao.TrackEventProvider
+Caused by: ClassNotFoundException: Didn't find class "...TrackEventProvider"
+  on path: DexPathList[[zip file "/product/priv-app/OplusCamera/OplusCamera.apk"] ...
+```
+
+**根因**：同一路径下有两个 APK。
+
+| | versionName | versionCode | mtime | 清单含 TrackEventProvider |
+|---|---|---|---|---|
+| 整包 product 镜像 | 6.020.888（201,922,949 B） | 60000 | 0 | 有（`classes12.dex` 也有该类） |
+| 模块 overlay | 6.070.45（193,164,793 B） | 60000 | 0（`touch -d @0`） | 没有 |
+
+PackageManager 的 `PackageCacher` 把解析结果缓存在 `/data/system/package_cache/<fp>/OplusCamera-16-<hash>`，
+只在 APK 路径或 mtime 变化时重新解析。刷完整包后如果先开机、再装模块，缓存是按镜像里 6.020 的清单建的；
+装上模块后路径和 mtime 都没变，PMS 继续使用 6.020 的清单去实例化 `TrackEventProvider`，而进程实际加载的是
+6.070 的 dex，于是在 `bindApplication` 阶段崩溃。本机的缓存条目是 11-08 模块已生效时建的，所以没有这个问题。
+
+**修复（1.7.23）**：`camera_fix.sh` 新增 `camera_refresh_pkg_cache`，在 post-fs-data 挂 `/product/priv-app`
+overlay 之前，按模块内 APK 的“大小-mtime”签名判断：签名与 `/data/adb/rmx5010_camera_pkgcache.sig` 不同（首次安装、
+或模块更新换了 APK）时删除 `package_cache/*/OplusCamera-*`，写入新签名。PMS 在本次开机按挂载后的 6.070 重新解析；
+之后的开机签名不变，不再删除。
+
+**已经出问题的设备的手动处理**（root）：`rm -f /data/system/package_cache/*/OplusCamera-*` 后重启。
+
+**本机复验（2026-11-15）**：安装 1.7.23 重启后，`audio.log` 记录 `camera: package cache cleared (1 entries) for module apk 193164793-1794756234`，
+`package_cache` 里的 `OplusCamera-16-540692913` 在本次开机重建，`dumpsys package` 为 6.070.45；
+`am start -W com.oplus.camera/.Camera` 冷启动 1432 ms，进程存活，crash 缓冲区为空。
